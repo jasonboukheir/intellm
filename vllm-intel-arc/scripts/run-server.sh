@@ -43,6 +43,10 @@ echo "  Config: $CONFIG"
 echo "  Port:   $PORT"
 echo ""
 
+# podman bind-mounts fail if the source directory does not yet exist
+HF_CACHE="$HOME/.cache/huggingface"
+mkdir -p "$HF_CACHE"
+
 # Parse YAML config into vLLM CLI args
 MODEL=$(yq -r '.model' "$CONFIG")
 DTYPE=$(yq -r '.dtype // "auto"' "$CONFIG")
@@ -63,7 +67,7 @@ exec podman run --rm \
     --group-add keep-groups \
     --shm-size=16g \
     -p "$PORT:8000" \
-    -v "$HOME/.cache/huggingface:/root/.cache/huggingface:z" \
+    -v "$HF_CACHE:/root/.cache/huggingface:z" \
     "$IMAGE" \
     vllm serve "$MODEL" \
     --dtype "$DTYPE" \
