@@ -50,21 +50,28 @@ TP=$(yq -r '.tensor_parallel_size // 1' "$CONFIG")
 MAX_LEN=$(yq -r '.max_model_len // 4096' "$CONFIG")
 GPU_UTIL=$(yq -r '.gpu_memory_utilization // 0.90' "$CONFIG")
 
-# Run container with GPU passthrough
-# Intel GPU requires /dev/dri access and render group
-exec podman run --rm -it \
+# Run container with GPU passthrough.
+# - keep-groups maps the host's render-group membership into the container,
+#   which is what /dev/dri/renderD* needs (literal "render" GID often mismatches).
+# - The base image has no ENTRYPOINT (CMD=/bin/bash), so we invoke `vllm serve`
+#   explicitly. --device xpu selects the XPU backend.
+CONTAINER_NAME="${CONTAINER_NAME:-vllm-server}"
+
+exec podman run --rm \
+    --name "$CONTAINER_NAME" \
     --device /dev/dri \
-    --group-add render \
+    --group-add keep-groups \
     --ipc=host \
     --shm-size=16g \
     -p "$PORT:8000" \
     -v "$HOME/.cache/huggingface:/root/.cache/huggingface:z" \
     "$IMAGE" \
-    --model "$MODEL" \
+    vllm serve "$MODEL" \
     --dtype "$DTYPE" \
     --tensor-parallel-size "$TP" \
     --max-model-len "$MAX_LEN" \
     --gpu-memory-utilization "$GPU_UTIL" \
     --device xpu \
+    --host 0.0.0.0 \
     --port 8000 \
     "${EXTRA_ARGS[@]}"
