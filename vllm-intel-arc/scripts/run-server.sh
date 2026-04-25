@@ -61,7 +61,6 @@ exec podman run --rm \
     --name "$CONTAINER_NAME" \
     --device /dev/dri \
     --group-add keep-groups \
-    --ipc=host \
     --shm-size=16g \
     -p "$PORT:8000" \
     -v "$HOME/.cache/huggingface:/root/.cache/huggingface:z" \
