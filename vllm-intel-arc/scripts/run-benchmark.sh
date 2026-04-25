@@ -13,10 +13,10 @@ echo "Server: $BASE_URL"
 echo "Results: $RESULTS_DIR"
 echo ""
 
-# Wait for server
+# Wait for server (vLLM exposes /v1/models, not /health)
 echo "Waiting for server..."
 for i in $(seq 1 60); do
-    if curl -s "$BASE_URL/health" >/dev/null 2>&1; then
+    if curl -sf -o /dev/null --max-time 2 "$BASE_URL/v1/models"; then
         echo "Server ready."
         break
     fi

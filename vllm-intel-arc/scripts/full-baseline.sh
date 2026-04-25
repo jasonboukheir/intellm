@@ -25,6 +25,9 @@ echo "Model: Qwen/Qwen2.5-7B-Instruct (BF16)"
 echo "Port:  $PORT"
 echo ""
 
+CONTAINER_NAME="${CONTAINER_NAME:-vllm-server}"
+export CONTAINER_NAME
+
 # Start server in background
 echo "--- Starting vLLM server ---"
 "$SCRIPT_DIR/run-server.sh" \
@@ -34,25 +37,30 @@ SERVER_PID=$!
 
 cleanup() {
     echo ""
-    echo "Stopping server (PID $SERVER_PID)..."
-    kill "$SERVER_PID" 2>/dev/null || true
+    echo "Stopping container $CONTAINER_NAME..."
+    podman stop -t 10 "$CONTAINER_NAME" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-# Wait for server readiness
-echo "Waiting for server..."
-for i in $(seq 1 120); do
-    if curl -s "http://localhost:$PORT/health" >/dev/null 2>&1; then
+# Wait for server readiness.
+# vLLM doesn't expose /health; /v1/models returns 200 once the engine is up.
+# First-time startup can take 5+ minutes (model download + AOT torch.compile).
+READY_TIMEOUT="${READY_TIMEOUT:-900}"
+echo "Waiting for server (timeout ${READY_TIMEOUT}s)..."
+for i in $(seq 1 "$READY_TIMEOUT"); do
+    if curl -sf -o /dev/null --max-time 2 "http://localhost:$PORT/v1/models"; then
         echo "Server ready after ${i}s."
         break
     fi
-    if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-        echo "Server process died. Check container logs."
-        exit 1
+    if ! podman inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q true; then
+        if [ "$i" -gt 5 ]; then
+            echo "Container $CONTAINER_NAME exited. Check: podman logs $CONTAINER_NAME"
+            exit 1
+        fi
     fi
-    if [ "$i" -eq 120 ]; then
-        echo "Server not ready after 120s, aborting."
+    if [ "$i" -eq "$READY_TIMEOUT" ]; then
+        echo "Server not ready after ${READY_TIMEOUT}s, aborting."
         exit 1
     fi
     sleep 1
