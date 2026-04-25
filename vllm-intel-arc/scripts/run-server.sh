@@ -74,7 +74,6 @@ exec podman run --rm \
     --tensor-parallel-size "$TP" \
     --max-model-len "$MAX_LEN" \
     --gpu-memory-utilization "$GPU_UTIL" \
-    --device xpu \
     --host 0.0.0.0 \
     --port 8000 \
     "${EXTRA_ARGS[@]}"
