@@ -27,6 +27,9 @@
           tqdm
           transformers
           huggingface-hub
+          datasets
+          scipy
+          sentencepiece
         ]);
 
       in {

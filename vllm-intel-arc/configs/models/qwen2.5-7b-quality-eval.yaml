@@ -1,0 +1,20 @@
+# Qwen2.5 7B — QUALITY EVALUATION config
+# BF16 weights (no weight quantization) so KV cache compression
+# is the only variable being measured.
+
+model: Qwen/Qwen2.5-7B-Instruct
+dtype: bfloat16
+device: xpu
+tensor_parallel_size: 1
+max_model_len: 4096
+gpu_memory_utilization: 0.90
+
+served_model_name: qwen2.5-7b-quality
+
+# Larger max_num_seqs since quality eval sends many short sequences
+max_num_seqs: 64
+enable_chunked_prefill: true
+
+# NOTE: For baseline capture, run with default KV cache (BF16).
+# For comparison captures, add kv-cache-dtype or use the
+# xpu-kvcache-quant vllm_adapter monkey-patch before starting.
