@@ -1,7 +1,5 @@
 # vllm-intel-arc
 
-Base container: `intel/vllm:0.17.0-xpu`
-
 AWQ/GPTQ are NOT available on XPU. Supported: FP16/BF16, dynamic FP8, MXFP4, INT4.
 
 ## References
