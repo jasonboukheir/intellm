@@ -1,0 +1,2 @@
+pybind11_add_module(xpu_flash_attn flash_attn_module.cpp)
+target_link_libraries(xpu_flash_attn PRIVATE xpu_flash_attention)

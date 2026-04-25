@@ -1,0 +1,14 @@
+# Qwen2.5 7B — validated model for Intel XPU
+# Good baseline for benchmarking since it's in Intel's validated model list
+
+model: Qwen/Qwen2.5-7B-Instruct
+dtype: bfloat16
+device: xpu
+tensor_parallel_size: 1
+max_model_len: 8192
+gpu_memory_utilization: 0.90
+
+served_model_name: qwen2.5-7b
+
+max_num_seqs: 32
+enable_chunked_prefill: true

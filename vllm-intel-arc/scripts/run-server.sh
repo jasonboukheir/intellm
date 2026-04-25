@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE="${VLLM_IMAGE:-intel/vllm:0.17.0-xpu}"
+CONFIG_DIR="$(cd "$(dirname "$0")/../configs/models" && pwd)"
+PORT="${PORT:-8000}"
+
+usage() {
+    echo "Usage: $0 [--config <config.yaml>] [--port <port>] [-- <extra vllm args>]"
+    echo ""
+    echo "Options:"
+    echo "  --config   Path to model config YAML (default: configs/models/llama-3.1-8b.yaml)"
+    echo "  --port     API server port (default: 8000)"
+    echo ""
+    echo "Available configs:"
+    ls "$CONFIG_DIR"/*.yaml 2>/dev/null | while read f; do
+        echo "  $(basename "$f")"
+    done
+    exit 1
+}
+
+CONFIG="$CONFIG_DIR/llama-3.1-8b.yaml"
+EXTRA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config) CONFIG="$2"; shift 2 ;;
+        --port) PORT="$2"; shift 2 ;;
+        --help|-h) usage ;;
+        --) shift; EXTRA_ARGS=("$@"); break ;;
+        *) EXTRA_ARGS+=("$1"); shift ;;
+    esac
+done
+
+if [[ ! -f "$CONFIG" ]]; then
+    echo "Config not found: $CONFIG"
+    usage
+fi
+
+echo "Starting vLLM server"
+echo "  Image:  $IMAGE"
+echo "  Config: $CONFIG"
+echo "  Port:   $PORT"
+echo ""
+
+# Parse YAML config into vLLM CLI args
+MODEL=$(yq -r '.model' "$CONFIG")
+DTYPE=$(yq -r '.dtype // "auto"' "$CONFIG")
+TP=$(yq -r '.tensor_parallel_size // 1' "$CONFIG")
+MAX_LEN=$(yq -r '.max_model_len // 4096' "$CONFIG")
+GPU_UTIL=$(yq -r '.gpu_memory_utilization // 0.90' "$CONFIG")
+
+# Run container with GPU passthrough
+# Intel GPU requires /dev/dri access and render group
+exec podman run --rm -it \
+    --device /dev/dri \
+    --group-add render \
+    --ipc=host \
+    --shm-size=16g \
+    -p "$PORT:8000" \
+    -v "$HOME/.cache/huggingface:/root/.cache/huggingface:z" \
+    "$IMAGE" \
+    --model "$MODEL" \
+    --dtype "$DTYPE" \
+    --tensor-parallel-size "$TP" \
+    --max-model-len "$MAX_LEN" \
+    --gpu-memory-utilization "$GPU_UTIL" \
+    --device xpu \
+    --port 8000 \
+    "${EXTRA_ARGS[@]}"

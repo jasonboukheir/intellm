@@ -1,0 +1,2 @@
+add_executable(test_flash_attn test_correctness.cpp)
+target_link_libraries(test_flash_attn PRIVATE xpu_flash_attention)

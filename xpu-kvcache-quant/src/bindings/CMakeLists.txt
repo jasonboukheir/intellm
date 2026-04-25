@@ -1,0 +1,2 @@
+pybind11_add_module(xpu_kvcache_quant kvcache_quant_module.cpp)
+target_link_libraries(xpu_kvcache_quant PRIVATE kvcache_quant)
