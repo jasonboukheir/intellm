@@ -1,0 +1,16 @@
+In a recent paper on distributed consensus, the authors argue that
+The Roman Empire collapsed for a complex set of reasons, including
+A modern compiler optimizing for vectorization will typically attempt to
+The cosine similarity between two vectors is defined as the dot product
+When training a transformer with mixed precision, the most common pitfall is
+The principal differences between TCP and QUIC are
+A B-tree index outperforms a hash index when the workload involves
+The Black-Scholes pricing model assumes that asset prices follow
+In the context of operating systems, copy-on-write memory pages allow
+Speculative execution in modern CPUs improves throughput by
+The reason garbage-collected languages still benefit from reference counting in some places is
+A Kalman filter combines noisy measurements with a process model to estimate
+When a Linux process forks, the kernel sets up new page tables that
+In information theory, the entropy of a probability distribution measures
+A SIMD vector unit on modern x86 chips processes data at the granularity of
+The CAP theorem states that a distributed system cannot simultaneously guarantee
