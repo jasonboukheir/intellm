@@ -23,11 +23,17 @@ case "${1:-}" in
     build)
         CMD='cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=icpx -DXFA_BUILD_PYTHON=OFF && cmake --build build -j'
         ;;
+    rebuild)
+        CMD='rm -rf build && cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=icpx -DXFA_BUILD_PYTHON=OFF && cmake --build build -j'
+        ;;
     test)
         CMD='./build/tests/test_flash_attn'
         ;;
     bench)
         CMD='./build/benchmarks/bench_flash_attn'
+        ;;
+    sdpa-bench)
+        CMD='python /work/benchmarks/bench_against_baseline.py --device xpu'
         ;;
     shell)
         CMD='exec bash'

@@ -24,7 +24,12 @@ struct BenchConfig {
     int head_dim;
 };
 
-void run_benchmark(sycl::queue& q, const BenchConfig& cfg, int warmup, int iters) {
+enum class Variant { V1, V1_SLMQO };
+static const char* variant_label(Variant v) {
+    return v == Variant::V1 ? "v1" : "v1.5";
+}
+
+void run_benchmark(sycl::queue& q, const BenchConfig& cfg, Variant variant, int warmup, int iters) {
     size_t total = cfg.batch_size * cfg.num_heads * cfg.seq_len * cfg.head_dim;
 
     std::vector<sycl::half> h_Q(total), h_K(total), h_V(total), h_O(total);
@@ -44,18 +49,17 @@ void run_benchmark(sycl::queue& q, const BenchConfig& cfg, int warmup, int iters
     q.memcpy(d_K, h_K.data(), total * sizeof(sycl::half)).wait();
     q.memcpy(d_V, h_V.data(), total * sizeof(sycl::half)).wait();
 
-    for (int i = 0; i < warmup; ++i) {
-        flash_attention_forward(q, d_Q, d_K, d_V, d_O, d_L,
-                                cfg.batch_size, cfg.num_heads, cfg.seq_len, cfg.head_dim)
-            .wait();
-    }
-
+    auto launch = [&]() {
+        if (variant == Variant::V1) {
+            return flash_attention_forward(q, d_Q, d_K, d_V, d_O, d_L,
+                cfg.batch_size, cfg.num_heads, cfg.seq_len, cfg.head_dim);
+        }
+        return flash_attention_forward_slmqo(q, d_Q, d_K, d_V, d_O, d_L,
+            cfg.batch_size, cfg.num_heads, cfg.seq_len, cfg.head_dim);
+    };
+    for (int i = 0; i < warmup; ++i) launch().wait();
     auto start = Clock::now();
-    for (int i = 0; i < iters; ++i) {
-        flash_attention_forward(q, d_Q, d_K, d_V, d_O, d_L,
-                                cfg.batch_size, cfg.num_heads, cfg.seq_len, cfg.head_dim)
-            .wait();
-    }
+    for (int i = 0; i < iters; ++i) launch().wait();
     auto end = Clock::now();
 
     double ms = std::chrono::duration<double, std::milli>(end - start).count() / iters;
@@ -70,7 +74,8 @@ void run_benchmark(sycl::queue& q, const BenchConfig& cfg, int warmup, int iters
     double bytes = 4.0 * total * sizeof(sycl::half);
     double bw_gbs = bytes / (ms * 1e6);
 
-    std::cout << "  B=" << cfg.batch_size << " H=" << cfg.num_heads
+    std::cout << "  [" << variant_label(variant) << "] "
+              << "B=" << cfg.batch_size << " H=" << cfg.num_heads
               << " S=" << cfg.seq_len << " D=" << cfg.head_dim
               << " | " << ms << " ms"
               << " | " << tflops << " TFLOPS"
@@ -112,8 +117,11 @@ int main() {
     std::cout << "Warmup: " << warmup << " | Iterations: " << iters << std::endl;
     std::cout << std::string(80, '-') << std::endl;
 
-    for (const auto& cfg : configs) {
-        run_benchmark(q, cfg, warmup, iters);
+    for (auto v : {Variant::V1, Variant::V1_SLMQO}) {
+        for (const auto& cfg : configs) {
+            run_benchmark(q, cfg, v, warmup, iters);
+        }
+        std::cout << std::endl;
     }
 
     return 0;

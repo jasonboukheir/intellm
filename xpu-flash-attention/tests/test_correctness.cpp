@@ -8,6 +8,7 @@
 #include <string>
 #include <tuple>
 #include "kernels/flash_attention_xe2.hpp"
+#include "kernels/flash_attention_xmx.hpp"
 
 // Naive attention on CPU in FP32 for reference.
 static void naive_attention_cpu(
@@ -68,13 +69,25 @@ static Stats compare(const std::vector<float>& a, const std::vector<float>& b) {
     return {max_abs, sum_abs / a.size(), ref_max};
 }
 
+enum class Variant { V1, V1_SLMQO, XMX };
+
 struct Case {
     int batch;
     int heads;
     int seq_len;
     int head_dim;
     bool causal;
+    Variant variant;
 };
+
+static const char* variant_name(Variant v) {
+    switch (v) {
+        case Variant::V1:       return "v1";
+        case Variant::V1_SLMQO: return "v1.5";
+        case Variant::XMX:      return "xmx";
+    }
+    return "?";
+}
 
 static int run_case(sycl::queue& q, const Case& c) {
     const int batch_heads = c.batch * c.heads;
@@ -108,9 +121,23 @@ static int run_case(sycl::queue& q, const Case& c) {
     q.memcpy(dK, Kh.data(), total * sizeof(sycl::half)).wait();
     q.memcpy(dV, Vh.data(), total * sizeof(sycl::half)).wait();
 
-    xfa::flash_attention_forward<sycl::half>(
-        q, dQ, dK, dV, dO, dL,
-        c.batch, c.heads, c.seq_len, c.head_dim, scale, c.causal).wait();
+    switch (c.variant) {
+        case Variant::V1:
+            xfa::flash_attention_forward<sycl::half>(
+                q, dQ, dK, dV, dO, dL,
+                c.batch, c.heads, c.seq_len, c.head_dim, scale, c.causal).wait();
+            break;
+        case Variant::V1_SLMQO:
+            xfa::flash_attention_forward_slmqo<sycl::half>(
+                q, dQ, dK, dV, dO, dL,
+                c.batch, c.heads, c.seq_len, c.head_dim, scale, c.causal).wait();
+            break;
+        case Variant::XMX:
+            xfa::flash_attention_forward_xmx<sycl::half>(
+                q, dQ, dK, dV, dO, dL,
+                c.batch, c.heads, c.seq_len, c.head_dim, scale, c.causal).wait();
+            break;
+    }
 
     q.memcpy(Oh.data(), dO, total * sizeof(sycl::half)).wait();
 
@@ -126,7 +153,8 @@ static int run_case(sycl::queue& q, const Case& c) {
     const float tol = 5e-3f;
     bool pass = (stats.max_abs <= tol);
 
-    std::cout << "  B=" << c.batch << " H=" << c.heads
+    std::cout << "  [" << variant_name(c.variant) << "]"
+              << " B=" << c.batch << " H=" << c.heads
               << " S=" << c.seq_len << " D=" << c.head_dim
               << " causal=" << (c.causal ? "y" : "n")
               << " | max|d|=" << std::scientific << std::setprecision(2) << stats.max_abs
@@ -144,15 +172,20 @@ int main() {
     std::cout << "Local mem: " << dev.get_info<sycl::info::device::local_mem_size>() << " bytes" << std::endl;
     std::cout << std::string(80, '-') << std::endl;
 
-    std::vector<Case> cases = {
-        {1, 1,   64,  128, false},
-        {1, 1,   64,  128, true },
-        {1, 1,  128,  128, false},
-        {1, 1,  128,  128, true },
-        {1, 4,  256,  128, true },
-        {1, 4,  512,  128, true },
-        {2, 8, 1024,  128, true },
-    };
+    std::vector<Case> cases;
+    auto seqs = {64, 128, 256, 512, 1024};
+    // Variants to test. XMX (joint_matrix) is currently disabled — see
+    // results/xmx_investigation.md: this Battlemage driver reports zero
+    // matrix_combinations supported, so joint_matrix raises at runtime.
+    std::vector<Variant> variants = {Variant::V1, Variant::V1_SLMQO};
+    if (const char* e = std::getenv("XFA_TEST_XMX"); e && *e == '1') {
+        variants.push_back(Variant::XMX);
+    }
+    for (auto v : variants) {
+        for (int s : seqs) cases.push_back({1, 4, s, 128, true,  v});
+        for (int s : seqs) cases.push_back({1, 4, s, 128, false, v});
+        cases.push_back({2, 8, 1024, 128, true, v});
+    }
 
     int failed = 0;
     for (const auto& c : cases) failed += run_case(q, c);

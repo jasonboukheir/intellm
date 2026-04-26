@@ -62,7 +62,8 @@ def main():
     args = parser.parse_args()
 
     device = torch.device(args.device)
-    if args.device == "xpu":
+    if args.device == "xpu" and not torch.xpu.is_available():
+        # torch >=2.7 has native XPU. Older builds need IPEX.
         import intel_extension_for_pytorch  # noqa: F401
 
     configs = [

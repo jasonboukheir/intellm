@@ -10,9 +10,19 @@ option(XFA_BUILD_PYTHON "Build Python bindings" ON)
 option(XFA_SYCL "Enable SYCL compilation" ON)
 
 if(XFA_SYCL)
-  # Intel DPC++ uses -fsycl flag
+  # JIT (default) consistently beat AOT for our SIMT kernels — the JIT path
+  # avoids the heavy register-spill the AOT graphics compiler produces.
+  # Set XFA_SYCL_TARGET=intel_gpu_bmg_g31 (or similar) only if you need AOT
+  # for a specific reason (e.g. once joint_matrix lowering for Xe2 lands —
+  # see results/xmx_investigation.md).
+  set(XFA_SYCL_TARGET "" CACHE STRING "AOT SYCL target arch (empty = JIT)")
+
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsycl")
+  if(NOT XFA_SYCL_TARGET STREQUAL "")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl-targets=${XFA_SYCL_TARGET}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsycl-targets=${XFA_SYCL_TARGET}")
+  endif()
 
   find_package(LevelZero QUIET)
   if(NOT LevelZero_FOUND)
