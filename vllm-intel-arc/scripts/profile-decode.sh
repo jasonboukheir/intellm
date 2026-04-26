@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Profile vLLM decode with PyTorch profiler (medium-depth profile).
+# Profile vLLM by parsing the engine's per-step stats and Prometheus metrics.
+#
+# We tried the PyTorch profiler path (VLLM_TORCH_PROFILER_DIR + /start_profile)
+# but the intel/vllm:0.17.0-xpu build doesn't recognize the env var nor the
+# endpoint. Engine stats are sufficient to answer the macro question
+# ("decode memory-bound?"): vLLM logs per-iteration prefill_throughput and
+# generation_throughput, and /metrics has KV-cache utilization, request
+# queue depth, and token-level timings.
 #
 # Workflow:
-#   1. Start the vLLM server in the background with profiler enabled
-#      (VLLM_TORCH_PROFILER_DIR=/tmp/vllm-traces inside the container).
+#   1. Start vLLM server, stream container logs to file.
 #   2. Wait for /v1/models.
-#   3. Send a warmup request so the engine is past compilation.
-#   4. POST /start_profile to begin tracing.
-#   5. Send N short generation requests so we capture decode steps.
-#   6. POST /stop_profile to dump the trace.
-#   7. Stop the server. The trace JSON ends up in $RESULTS_DIR.
-#
-# The trace can be opened in chrome://tracing or perfetto.dev.
-#
-# We also poll /metrics during the workload so we get vLLM's own counters
-# (token/s, kv-cache util) alongside the kernel timeline.
+#   3. Snapshot /metrics (before).
+#   4. Run workloads at several concurrencies/prompt lengths to populate stats.
+#   5. Snapshot /metrics (after).
+#   6. Extract engine-stats lines from server.log into stats.txt.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,8 +22,7 @@ IMAGE="${VLLM_IMAGE:-intel/vllm@sha256:e961d08135a6a8ef6decd857c6deab7a70eb00e19
 PORT="${PORT:-8000}"
 BASE_URL="http://127.0.0.1:$PORT"
 RESULTS_DIR="$ROOT/results/profile-$(date +%Y%m%d-%H%M%S)"
-TRACE_DIR_HOST="$RESULTS_DIR/traces"
-mkdir -p "$TRACE_DIR_HOST"
+mkdir -p "$RESULTS_DIR"
 
 CONTAINER_NAME="vllm-profile-$$"
 HF_CACHE="$HOME/.cache/huggingface"
@@ -41,18 +40,19 @@ GPU_UTIL="${GPU_UTIL:-0.90}"
 
 cleanup() {
     echo "[cleanup] stopping $CONTAINER_NAME"
+    [ -n "${LOGS_PID:-}" ] && kill "$LOGS_PID" 2>/dev/null || true
     podman stop -t 5 "$CONTAINER_NAME" 2>/dev/null || true
     podman rm -f "$CONTAINER_NAME" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-echo "=== vLLM decode profile ==="
+echo "=== vLLM workload profile ==="
 echo "Model:       $MODEL ($DTYPE)"
 echo "Container:   $CONTAINER_NAME"
-echo "Trace dir:   $TRACE_DIR_HOST"
+echo "Results dir: $RESULTS_DIR"
 echo
 
-echo "[1/7] starting server with VLLM_TORCH_PROFILER_DIR enabled..."
+echo "[1/6] starting server..."
 podman run -d --rm \
     --name "$CONTAINER_NAME" \
     --device /dev/dri \
@@ -60,26 +60,34 @@ podman run -d --rm \
     --shm-size=16g \
     -p "$PORT:8000" \
     -v "$HF_CACHE:/root/.cache/huggingface:z" \
-    -v "$TRACE_DIR_HOST:/traces:z" \
-    -e VLLM_TORCH_PROFILER_DIR=/traces \
     "$IMAGE" \
     vllm serve "$MODEL" \
         --dtype "$DTYPE" \
         --tensor-parallel-size "$TP" \
         --max-model-len "$MAX_LEN" \
         --gpu-memory-utilization "$GPU_UTIL" \
-        --host 0.0.0.0 --port 8000 \
-        > "$RESULTS_DIR/server.log" 2>&1
+        --host 0.0.0.0 --port 8000 > /dev/null
 
-echo "[2/7] waiting for /v1/models (up to 5 minutes)..."
-for i in $(seq 1 300); do
+# Stream container logs to file in the background so we can debug failures.
+podman logs -f "$CONTAINER_NAME" > "$RESULTS_DIR/server.log" 2>&1 &
+LOGS_PID=$!
+
+echo "[2/6] waiting for /v1/models (up to 8 minutes; first start can take ~3 min)..."
+WAIT_S=480
+for i in $(seq 1 "$WAIT_S"); do
     if curl -sf -o /dev/null --max-time 2 "$BASE_URL/v1/models"; then
         echo "      ready after ${i}s."
         break
     fi
-    if [ "$i" -eq 300 ]; then
-        echo "      server not ready after 300s. Server log:" >&2
-        tail -50 "$RESULTS_DIR/server.log" >&2
+    # If the container died, bail early.
+    if ! podman ps --filter "name=$CONTAINER_NAME" --format '{{.Names}}' | grep -q "$CONTAINER_NAME"; then
+        echo "      container exited unexpectedly. Tail of server.log:" >&2
+        tail -80 "$RESULTS_DIR/server.log" >&2
+        exit 1
+    fi
+    if [ "$i" -eq "$WAIT_S" ]; then
+        echo "      server not ready after ${WAIT_S}s. Tail of server.log:" >&2
+        tail -80 "$RESULTS_DIR/server.log" >&2
         exit 1
     fi
     sleep 1
@@ -100,39 +108,36 @@ send_request() {
         > /dev/null
 }
 
-echo "[3/7] warmup (compile path / cuda graphs / etc.)..."
+# wait_pids: wait only on the curl PIDs (NOT on `podman logs -f`, which would
+# block forever).
+wait_pids() {
+    for p in "$@"; do wait "$p" || true; done
+}
+
+echo "[3/6] warmup..."
 send_request 32
 
-echo "[4/7] starting torch profiler..."
-curl -sf -X POST "$BASE_URL/start_profile"
-sleep 1
+echo "[4/6] running workloads (single-stream + 4-concurrency, decode-heavy)..."
+echo "      single-stream, 256 tokens..."
+send_request 256
+echo "      4 concurrent, 128 tokens..."
+pids=()
+for _ in 1 2 3 4; do send_request 128 & pids+=($!); done
+wait_pids "${pids[@]}"
+echo "      8 concurrent, 64 tokens..."
+pids=()
+for _ in 1 2 3 4 5 6 7 8; do send_request 64 & pids+=($!); done
+wait_pids "${pids[@]}"
 
-echo "[5/7] running profiled workload (4 concurrent requests, 64 tokens each)..."
-for _ in 1 2 3 4; do
-    send_request 64 &
-done
-wait
-
-echo "[6/7] stopping torch profiler (this can take ~30s as it dumps the trace)..."
-curl -sf -X POST "$BASE_URL/stop_profile"
-
-# Wait for trace files to actually appear (the dump is async)
-echo "      waiting for trace JSON to appear..."
-for i in $(seq 1 60); do
-    if ls "$TRACE_DIR_HOST"/*.pt.trace.json* "$TRACE_DIR_HOST"/*.json 2>/dev/null | head -1 >/dev/null; then
-        break
-    fi
-    sleep 2
-done
-
-# Snapshot metrics after workload
+echo "[5/6] snapshotting /metrics (after)..."
 curl -sf "$BASE_URL/metrics" > "$RESULTS_DIR/metrics-after.txt" || true
 
-echo "[7/7] summary"
-echo "  Server log:        $RESULTS_DIR/server.log"
-echo "  Trace files:       $TRACE_DIR_HOST/"
-ls -lh "$TRACE_DIR_HOST/" 2>/dev/null || true
-echo "  Metrics snapshot:  $RESULTS_DIR/metrics-{before,after}.txt"
+echo "[6/6] extracting engine stats..."
+grep -E "Engine .*: Avg prompt throughput|Avg prompt|Avg generation|Running:|Pending:|GPU KV cache" \
+    "$RESULTS_DIR/server.log" > "$RESULTS_DIR/engine-stats.txt" 2>/dev/null || true
 echo
-echo "Open trace in https://ui.perfetto.dev or chrome://tracing"
-echo "Then run: scripts/summarize-profile.py $TRACE_DIR_HOST/<trace.json>"
+echo "  Server log:    $RESULTS_DIR/server.log"
+echo "  Engine stats:  $RESULTS_DIR/engine-stats.txt   ($(wc -l < "$RESULTS_DIR/engine-stats.txt" 2>/dev/null || echo 0) lines)"
+echo "  Metrics:       $RESULTS_DIR/metrics-{before,after}.txt"
+echo
+echo "Run: scripts/summarize-metrics.sh $RESULTS_DIR/"
