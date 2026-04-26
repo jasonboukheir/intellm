@@ -13,8 +13,15 @@ if [ ! -f "$CONFIG" ]; then
     exit 1
 fi
 
-REPO=$(yq -r '.repo_id'   "$CONFIG")
-FILE=$(yq -r '.gguf_file' "$CONFIG")
+# yq is provided by the project nix devshell. Fall back to a minimal grep
+# parser when invoked from the bare host shell (no direnv).
+if command -v yq >/dev/null 2>&1; then
+    REPO=$(yq -r '.repo_id'   "$CONFIG")
+    FILE=$(yq -r '.gguf_file' "$CONFIG")
+else
+    REPO=$(grep -E '^repo_id:'   "$CONFIG" | awk '{print $2}' | tr -d '"')
+    FILE=$(grep -E '^gguf_file:' "$CONFIG" | awk '{print $2}' | tr -d '"')
+fi
 
 CACHE="$HOME/.cache/llamacpp/models"
 mkdir -p "$CACHE"
@@ -30,10 +37,9 @@ URL="https://huggingface.co/${REPO}/resolve/main/${FILE}"
 echo "Downloading $URL"
 echo "    -> $DEST"
 
-# Use wget with continue support — GGUF files are large (20+ GB).
-# huggingface-cli would also work but adds a Python dep we'd have to enter
-# the nix shell for; wget keeps this script simple from the host.
-wget --continue --progress=bar:force:noscroll -O "$DEST.partial" "$URL"
+# Use curl -C - for resume; the host shell may not have wget. GGUF files are
+# 20+ GB, so resume support matters.
+curl -L -C - -o "$DEST.partial" "$URL"
 mv "$DEST.partial" "$DEST"
 
 SIZE=$(stat -c%s "$DEST")

@@ -26,15 +26,31 @@ if [ ! -f "$CONFIG" ]; then
     echo "config not found: $CONFIG" >&2
     exit 1
 fi
-GGUF=$(yq -r '.gguf_file' "$CONFIG")
-ALIAS=$(yq -r '.served_model_alias // .gguf_file' "$CONFIG")
-CTX=$(yq -r '.context_size // 4096' "$CONFIG")
-PAR=$(yq -r '.parallel // 1' "$CONFIG")
-NGL=$(yq -r '.n_gpu_layers // -1' "$CONFIG")
-NB=$(yq -r '.n_batch // 2048' "$CONFIG")
-NUB=$(yq -r '.n_ubatch // 512' "$CONFIG")
-THREADS=$(yq -r '.threads // 8' "$CONFIG")
-FA=$(yq -r '.flash_attn // true' "$CONFIG")
+
+# yq is only present in the project nix devshell. From the bare host shell,
+# fall back to a minimal grep-based parser.
+get() {
+    local key="$1" default="$2"
+    if command -v yq >/dev/null 2>&1; then
+        local v
+        v=$(yq -r ".${key} // \"\"" "$CONFIG")
+        [ -n "$v" ] && [ "$v" != "null" ] && echo "$v" || echo "$default"
+    else
+        local v
+        v=$(grep -E "^${key}:" "$CONFIG" | head -1 | sed -E "s/^${key}:[[:space:]]*//" | tr -d '"' | sed -E 's/[[:space:]]+#.*$//')
+        [ -n "$v" ] && echo "$v" || echo "$default"
+    fi
+}
+
+GGUF=$(get gguf_file "")
+ALIAS=$(get served_model_alias "$GGUF")
+CTX=$(get context_size 4096)
+PAR=$(get parallel 1)
+NGL=$(get n_gpu_layers -1)
+NB=$(get n_batch 2048)
+NUB=$(get n_ubatch 512)
+THREADS=$(get threads 8)
+FA=$(get flash_attn true)
 
 if [ ! -f "$CACHE/$GGUF" ]; then
     echo "GGUF not found: $CACHE/$GGUF" >&2
@@ -53,8 +69,11 @@ trap cleanup EXIT INT TERM
 # wait_pids: wait only on these PIDs (NOT on backgrounded podman logs -f).
 wait_pids() { for p in "$@"; do wait "$p" || true; done; }
 
-FLASH_ARGS=()
-[ "$FA" = "true" ] && FLASH_ARGS=(--flash-attn)
+FLASH_ARGS=(--flash-attn auto)
+case "$FA" in
+    true|True|on)  FLASH_ARGS=(--flash-attn on)  ;;
+    false|False|off) FLASH_ARGS=(--flash-attn off) ;;
+esac
 
 echo "=== llama.cpp/SYCL workload profile ==="
 echo "Model:       $GGUF (alias: $ALIAS)"
