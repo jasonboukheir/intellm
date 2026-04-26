@@ -12,7 +12,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME_IMAGE="${LLAMA_AICSS_RUNTIME:-docker.io/intel/vllm:0.17.0-xpu}"
-BIN_DIR="$ROOT/build-aicss/llama.cpp/build/bin"
+BIN_DIR="$ROOT/build-aicss/llama-pr-only/build/bin"
 CONFIG="${1:-$ROOT/configs/models/qwen3.6-35b-a3b-q4km.yaml}"
 PORT="${PORT:-8081}"
 shift || true
@@ -94,7 +94,9 @@ exec podman run --rm \
     "${EXTRA_ENV[@]}" \
     --entrypoint /bin/bash \
     "$RUNTIME_IMAGE" \
-    -lc ". /opt/intel/oneapi/setvars.sh --force >/dev/null && exec /llama/llama-server \
+    -lc ". /opt/intel/oneapi/setvars.sh --force >/dev/null && \
+        export LD_LIBRARY_PATH=/llama:\${LD_LIBRARY_PATH:-} && \
+        exec /llama/llama-server \
         --model /models/$GGUF \
         --alias '$ALIAS' \
         --host 0.0.0.0 --port 8080 \

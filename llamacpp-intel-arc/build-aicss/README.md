@@ -1,63 +1,68 @@
 # build-aicss/
 
-Local checkout of `aicss-genai/llama.cpp@aicss-genai-fork` (the umbrella PR
-ggml-org/llama.cpp#22066 = the seven sub-PRs #22147–#22156). Built here
-to test the Battlemage SYCL optimizations against our Qwen3.6-35B-A3B
-workload before they land upstream.
+Local llama.cpp build with the open Intel SYCL PRs cherry-picked. Built
+here to test their effect against our Qwen3.6-35B-A3B workload before
+they land upstream.
 
-## Layout
+## Status: 6 of 7 PRs in use
 
-- `llama.cpp/` — git clone of the fork, branch `aicss-genai-fork`
-- `aicss-fork-merge-fixes.patch` — local fixes for merge artifacts in
-  the fork (see "Fork bugs we fixed" below). Apply with
-  `cd llama.cpp && git apply ../aicss-fork-merge-fixes.patch`.
+| PR | Title | Status |
+|----|-------|--------|
+| [#22147](https://github.com/ggml-org/llama.cpp/pull/22147) | Battlemage AOT + MMQ subgroup | applied |
+| [#22148](https://github.com/ggml-org/llama.cpp/pull/22148) | PAD non-contiguous stride | applied |
+| [#22149](https://github.com/ggml-org/llama.cpp/pull/22149) | FILL/CUMSUM/DIAG/SOLVE_TRI/SSM_SCAN/GATED_DELTA_NET | applied |
+| [#22150](https://github.com/ggml-org/llama.cpp/pull/22150) | small f32 matmul → oneMKL | applied |
+| [#22152](https://github.com/ggml-org/llama.cpp/pull/22152) | Q5_K + Q8_0 reorder MMVQ | **skipped** — stale; upstream master independently added the same `dequantize_q8_0_reorder` / `dequantize_block_q8_0_reorder` / `reorder_mul_mat_vec_q8_0_q8_1_sycl` symbols, so cherry-picking creates duplicate definitions |
+| [#22153](https://github.com/ggml-org/llama.cpp/pull/22153) | GGML_SYCL_USE_ASYNC_MEM_OP env | applied |
+| [#22156](https://github.com/ggml-org/llama.cpp/pull/22156) | Q6_K SWAR byte-subtract | applied |
 
-## Build
-
-Inside the project (where this README lives):
+## How the checkout was built
 
 ```sh
-podman run --rm \
-    --device /dev/dri --group-add keep-groups \
-    -v "$(pwd)/llama.cpp:/work:z" -w /work \
-    -e SETVARS_COMPLETED=0 \
-    docker.io/intel/vllm:0.17.0-xpu \
-    bash -lc '. /opt/intel/oneapi/setvars.sh --force >/dev/null && \
-      cmake -S . -B build -G Ninja \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
-        -DGGML_SYCL=ON -DGGML_SYCL_TARGET=INTEL \
-        -DGGML_SYCL_DEVICE_ARCH=bmg-g31 -DGGML_SYCL_F16=ON \
-        -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_CURL=OFF && \
-      cmake --build build --target llama-server -j$(nproc)'
+git clone --depth 1 https://github.com/ggml-org/llama.cpp.git llama-pr-only
+cd llama-pr-only
+git remote add aicss https://github.com/aicss-genai/llama.cpp.git
+git fetch aicss aicss-genai/sycl-bmg-upstream-pr-{1,2,3,4,5,6,7}
+
+# cherry-pick each PR's change commit onto current master,
+# skipping pr-5 (already merged in spirit)
+git cherry-pick \
+    4065b65  # PR #22147
+    5496728  # PR #22148
+    ad7cabe  # PR #22149
+    1dd517d  # PR #22150
+    210de27  # PR #22153
+    4f611ae  # PR #22156
+
+# build (JIT — AOT works too with -DGGML_SYCL_DEVICE_ARCH=bmg-g31)
+podman run --rm --device /dev/dri --group-add keep-groups \
+  -v "$(pwd):/work:z" -w /work \
+  -e SETVARS_COMPLETED=0 \
+  docker.io/intel/vllm:0.17.0-xpu bash -lc '
+    . /opt/intel/oneapi/setvars.sh --force >/dev/null
+    cmake -S . -B build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
+      -DGGML_SYCL=ON -DGGML_SYCL_TARGET=INTEL \
+      -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_CURL=OFF
+    cmake --build build --target llama-server -j$(nproc)'
 ```
 
-Resulting binary: `build-aicss/llama.cpp/build/bin/llama-server`.
+Resulting binary: `build-aicss/llama-pr-only/build/bin/llama-server`.
 
-To run with this binary, use `scripts/run-server-aicss.sh` from the
-project root.
+## Why not the full `aicss-genai-fork` branch?
 
-## Fork bugs we fixed
+The fork at `aicss-genai/llama.cpp@aicss-genai-fork` carries 12 patches —
+the 7 in their open PRs *plus* 5 more (RMS_NORM+MUL fusion, native
+shuffles, scratchpad pool, UNARY+MUL fusion, 3-op fusion, etc) that
+the team is testing privately. We built the full fork (`llama.cpp/`
+sibling dir, also gitignored) and it produced gibberish output on
+Qwen3.6 — so one of those private patches is broken on this card. The
+narrow cherry-pick reproduces only what's been publicly proposed.
 
-The fork contains a leftover merge artifact: a "fix duplicates" commit
-landed but didn't fully de-duplicate. We needed three local patches to
-build:
+## Run
 
-1. `ggml/src/ggml-sycl/dequantize.hpp` — duplicate definitions of
-   `dequantize_q8_0_reorder` (lines 147 & 182) and
-   `dequantize_block_q8_0_reorder` (lines 201 & 290). Deleted the second
-   pair.
-2. `ggml/src/ggml-sycl/ggml-sycl.cpp` — duplicate `reorder_qw_q5_k`,
-   inconsistent `static bool` vs `static void` signatures across the
-   `reorder_qw_q*` family, and a leftover bool-return check in
-   `opt_for_reorder`. Made all five `reorder_qw_q*` return void; changed
-   `reorder_qw`'s switch to use plain calls + break; dropped
-   `if (reorder_qw(...))` to an unconditional call.
-3. `ggml/src/ggml-sycl/mmvq.cpp` — duplicate
-   `reorder_mul_mat_vec_q8_0_q8_1_sycl` (lines 682 & 725, identical
-   bodies). Deleted the second.
-
-These all cluster around split-PR #5 (Q5_K + Q8_0 reorder MMVQ)
-re-introducing definitions that were already in upstream from earlier
-commits. Worth filing an issue against the fork — but we don't need it
-to validate the optimizations on our card.
+```sh
+nix run .#server -- configs/models/qwen3.6-35b-a3b-q4km.yaml   # vanilla container
+scripts/run-server-aicss.sh configs/models/qwen3.6-35b-a3b-q4km.yaml   # this build
+```

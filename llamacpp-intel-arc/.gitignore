@@ -8,3 +8,4 @@ results/
 !configs/**/*.json
 build-aicss/llama.cpp/
 build-aicss/llama.cpp.bak/
+build-aicss/llama-pr-only/
