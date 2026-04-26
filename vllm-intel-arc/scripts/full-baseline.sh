@@ -43,13 +43,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Wait for server readiness.
-# vLLM doesn't expose /health; /v1/models returns 200 once the engine is up.
-# First-time startup can take 5+ minutes (model download + AOT torch.compile).
+# Wait for server readiness. Use 127.0.0.1 explicitly: on NixOS/Arch/etc.
+# `localhost` may resolve to ::1 first, but podman rootless networking
+# (passt) only listens on IPv4, causing curl to fail with exit 56.
+# vLLM does expose /health but /v1/models is functionally equivalent.
+# First-time startup can take 5+ minutes (model download + AOT compile).
+SERVER_HOST="127.0.0.1"
+SERVER_URL="http://$SERVER_HOST:$PORT"
 READY_TIMEOUT="${READY_TIMEOUT:-900}"
-echo "Waiting for server (timeout ${READY_TIMEOUT}s)..."
+echo "Waiting for server at $SERVER_URL (timeout ${READY_TIMEOUT}s)..."
 for i in $(seq 1 "$READY_TIMEOUT"); do
-    if curl -sf -o /dev/null --max-time 2 "http://localhost:$PORT/v1/models"; then
+    if curl -sf -o /dev/null --max-time 2 "$SERVER_URL/v1/models"; then
         echo "Server ready after ${i}s."
         break
     fi
@@ -66,7 +70,7 @@ for i in $(seq 1 "$READY_TIMEOUT"); do
     sleep 1
 done
 
-MODEL=$(curl -s "http://localhost:$PORT/v1/models" | jq -r '.data[0].id')
+MODEL=$(curl -s "$SERVER_URL/v1/models" | jq -r '.data[0].id')
 echo "Model loaded: $MODEL"
 echo ""
 
@@ -74,7 +78,7 @@ echo ""
 echo "--- Throughput Benchmarks ---"
 mkdir -p "$PROJECT_DIR/results"
 python3 "$PROJECT_DIR/benchmarks/run_benchmarks.py" \
-    --base-url "http://localhost:$PORT" \
+    --base-url "$SERVER_URL" \
     --model "$MODEL" \
     --output "$PROJECT_DIR/results/throughput_baseline.json"
 echo ""
@@ -82,7 +86,7 @@ echo ""
 # Step 2: Quality baseline (WikiText-2 logprobs)
 echo "--- Quality Baseline (WikiText-2) ---"
 python3 "$PROJECT_DIR/benchmarks/quality/capture_logprobs.py" \
-    --base-url "http://localhost:$PORT" \
+    --base-url "$SERVER_URL" \
     --model "$MODEL" \
     --tag baseline \
     --dataset wikitext2 \

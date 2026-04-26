@@ -2,7 +2,9 @@
 set -euo pipefail
 
 PORT="${PORT:-8000}"
-BASE_URL="http://localhost:$PORT"
+# 127.0.0.1, not localhost: podman rootless (passt) listens IPv4-only,
+# but `localhost` may resolve to ::1 first.
+BASE_URL="http://127.0.0.1:$PORT"
 RESULTS_DIR="$(cd "$(dirname "$0")/.." && pwd)/results"
 mkdir -p "$RESULTS_DIR"
 
