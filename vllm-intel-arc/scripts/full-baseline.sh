@@ -4,9 +4,9 @@ set -euo pipefail
 # Full baseline collection: throughput + quality on Qwen2.5-7B-Instruct
 #
 # Prerequisites:
-#   1. GPU detected (run nix-intel-xpu/tests/smoke-test.sh)
-#   2. Container pulled (./scripts/pull-container.sh)
-#   3. HuggingFace token set (for gated models)
+#   1. GPU detected (nix run ../nix-intel-xpu#smoke-test)
+#   2. HuggingFace token set (for gated models, env HF_TOKEN)
+# Container image is pulled automatically on first run.
 #
 # This script:
 #   1. Starts vLLM with Qwen2.5-7B at BF16 (quality eval config)
@@ -27,6 +27,13 @@ echo ""
 
 CONTAINER_NAME="${CONTAINER_NAME:-vllm-server}"
 export CONTAINER_NAME
+
+# Pull image if absent so the rest of the script can assume it's local.
+IMAGE="${VLLM_IMAGE:-intel/vllm@sha256:e961d08135a6a8ef6decd857c6deab7a70eb00e19de21de54cbc0ce05d9a9f43}"
+if ! podman image exists "$IMAGE"; then
+    echo "--- Image $IMAGE not found locally, pulling ---"
+    VLLM_IMAGE="$IMAGE" "$SCRIPT_DIR/pull-container.sh"
+fi
 
 # Start server in background
 echo "--- Starting vLLM server ---"

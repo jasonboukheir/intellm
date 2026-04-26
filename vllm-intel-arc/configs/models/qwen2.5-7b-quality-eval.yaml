@@ -3,6 +3,8 @@
 # is the only variable being measured.
 
 model: Qwen/Qwen2.5-7B-Instruct
+# Pin a HuggingFace revision (commit SHA or tag) for reproducibility; leave empty for HEAD.
+revision: ""
 dtype: bfloat16
 device: xpu
 tensor_parallel_size: 1

@@ -42,11 +42,36 @@
           src = vllm-xpu-kernels-src;
         };
 
+        smoke-test = pkgs.writeShellApplication {
+          name = "nix-intel-xpu-smoke-test";
+          runtimeInputs = [
+            pkgs.bash
+            pkgs.clinfo
+            pkgs.pciutils
+            pkgs.bc
+            (pkgs.python312.withPackages (ps: with ps; [ ]))
+            pkgs.level-zero
+          ];
+          text = builtins.readFile ./tests/smoke-test.sh;
+        };
+
       in {
         packages = {
           inherit sycl-tla oneapi-env vllm-xpu-kernels;
           default = sycl-tla;
         };
+
+        apps = {
+          smoke-test = flake-utils.lib.mkApp { drv = smoke-test; };
+          default = flake-utils.lib.mkApp { drv = smoke-test; };
+        };
+
+        checks.smoke-syntax = pkgs.runCommand "nix-intel-xpu-smoke-syntax"
+          { nativeBuildInputs = [ pkgs.bash ]; }
+          ''
+            bash -n ${./tests/smoke-test.sh}
+            touch $out
+          '';
 
         devShells.default = pkgs.mkShell {
           name = "nix-intel-xpu-dev";
@@ -81,7 +106,11 @@
           shellHook = ''
             echo "nix-intel-xpu development environment"
             echo "  level-zero: $(pkg-config --modversion level-zero 2>/dev/null || echo 'not found via pkg-config')"
-            echo "  Use 'nix build .#oneapi-env' for FHS environment with oneAPI installer support"
+            echo ""
+            echo "Entrypoints:"
+            echo "  nix run .#smoke-test    # GPU + Level Zero detection"
+            echo "  nix run .#oneapi-env    # FHS env for Intel DPC++"
+            echo "  nix flake check         # script syntax"
           '';
         };
       }

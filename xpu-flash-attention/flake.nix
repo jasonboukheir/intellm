@@ -26,6 +26,25 @@
           pybind11
         ]);
 
+        build = pkgs.writeShellApplication {
+          name = "xpu-flash-attention-build";
+          runtimeInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config ];
+          text = ''
+            if [ ! -f CMakeLists.txt ]; then
+              echo "error: run from the xpu-flash-attention project root" >&2
+              exit 1
+            fi
+            if ! command -v icpx >/dev/null 2>&1; then
+              echo "error: icpx not on PATH — enter the oneAPI FHS env first:" >&2
+              echo "  nix run ../nix-intel-xpu#oneapi-env" >&2
+              echo "  source /opt/intel/oneapi/setvars.sh" >&2
+              exit 1
+            fi
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "$@"
+            cmake --build build
+          '';
+        };
+
       in {
         devShells.default = pkgs.mkShell {
           name = "xpu-flash-attention-dev";
@@ -58,17 +77,37 @@
           shellHook = ''
             echo "xpu-flash-attention development environment"
             echo ""
-            echo "Build:"
-            echo "  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release"
-            echo "  cmake --build build"
-            echo ""
-            echo "For SYCL compilation, enter oneAPI FHS env:"
+            echo "Build (requires oneAPI FHS env first):"
             echo "  nix run ../nix-intel-xpu#oneapi-env"
             echo "  source /opt/intel/oneapi/setvars.sh"
+            echo "  nix run .#build"
+            echo ""
+            echo "Sanity:  nix flake check"
           '';
         };
 
         devShells.oneapi = nix-intel-xpu.packages.${system}.oneapi-env;
+
+        apps.build = flake-utils.lib.mkApp { drv = build; };
+        apps.default = flake-utils.lib.mkApp { drv = build; };
+
+        checks.cmake-configure = pkgs.runCommand "xpu-flash-attention-cmake-configure"
+          {
+            nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.gcc13 ];
+          }
+          ''
+            cp -r ${self}/. project
+            chmod -R +w project
+            cd project
+            # Configure-only sanity check: parses CMakeLists.txt without DPC++ or sycl-tla headers.
+            # SYCL/Python bindings are gated off — DPC++ isn't packaged for Nix; sycl-tla is consumed
+            # at build time only via the include path.
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              -DXFA_SYCL=OFF \
+              -DXFA_BUILD_PYTHON=OFF \
+              -DCMAKE_CXX_COMPILER=g++
+            touch $out
+          '';
       }
     );
 }

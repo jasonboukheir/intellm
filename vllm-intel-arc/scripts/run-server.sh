@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${VLLM_IMAGE:-intel/vllm:0.17.0-xpu}"
+IMAGE="${VLLM_IMAGE:-intel/vllm@sha256:e961d08135a6a8ef6decd857c6deab7a70eb00e19de21de54cbc0ce05d9a9f43}"
 CONFIG_DIR="$(cd "$(dirname "$0")/../configs/models" && pwd)"
 PORT="${PORT:-8000}"
 
@@ -53,6 +53,12 @@ DTYPE=$(yq -r '.dtype // "auto"' "$CONFIG")
 TP=$(yq -r '.tensor_parallel_size // 1' "$CONFIG")
 MAX_LEN=$(yq -r '.max_model_len // 4096' "$CONFIG")
 GPU_UTIL=$(yq -r '.gpu_memory_utilization // 0.90' "$CONFIG")
+REVISION=$(yq -r '.revision // ""' "$CONFIG")
+
+REVISION_ARGS=()
+if [[ -n "$REVISION" ]]; then
+    REVISION_ARGS=(--revision "$REVISION")
+fi
 
 # Run container with GPU passthrough.
 # - keep-groups maps the host's render-group membership into the container,
@@ -76,4 +82,5 @@ exec podman run --rm \
     --gpu-memory-utilization "$GPU_UTIL" \
     --host 0.0.0.0 \
     --port 8000 \
+    "${REVISION_ARGS[@]}" \
     "${EXTRA_ARGS[@]}"
