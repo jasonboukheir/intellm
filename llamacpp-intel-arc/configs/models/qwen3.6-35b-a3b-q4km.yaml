@@ -1,0 +1,17 @@
+# Qwen3.6-35B-A3B (Unsloth dynamic Q4_K_M) on Arc B70.
+# - 35B total / 3B active MoE + hybrid Gated-DeltaNet/Attention.
+# - 22.1 GB on disk, fits 32 GB VRAM with room for KV cache.
+
+repo_id: unsloth/Qwen3.6-35B-A3B-GGUF
+gguf_file: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+
+served_model_alias: qwen3.6-35b-a3b-q4km
+
+# llama-server options
+context_size: 32768       # 32K — Qwen3.6 native is 256K but KV cache cost is steep
+n_gpu_layers: -1          # -1 = offload all
+n_batch: 2048             # logical batch (prompt processing chunk)
+n_ubatch: 512             # physical batch (one forward pass)
+parallel: 4               # max concurrent sequences
+flash_attn: true          # llama.cpp's own FA path (CPU/CUDA optimized; SYCL supported on Xe2)
+threads: 8                # CPU threads for non-GPU ops
