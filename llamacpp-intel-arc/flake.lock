@@ -44,14 +44,14 @@
         "vllm-xpu-kernels-src": "vllm-xpu-kernels-src"
       },
       "locked": {
-        "path": "../nix-intel-xpu",
+        "narHash": "sha256-TrfR1dimZiEYOoXv5MMRUd8iNYDlpdeqIIcYIQtKc38=",
+        "path": "/home/jasonbk/Projects/intellm/nix-intel-xpu",
         "type": "path"
       },
       "original": {
-        "path": "../nix-intel-xpu",
+        "path": "/home/jasonbk/Projects/intellm/nix-intel-xpu",
         "type": "path"
-      },
-      "parent": []
+      }
     },
     "nixpkgs": {
       "locked": {
@@ -89,7 +89,20 @@
       "inputs": {
         "flake-utils": "flake-utils",
         "nix-intel-xpu": "nix-intel-xpu",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs_2",
+        "server-bin-aicss": "server-bin-aicss"
+      }
+    },
+    "server-bin-aicss": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-DJlqFSl3WyUjraXJBuvI00+Nfryfs+y0QlR6i+Ld04I=",
+        "path": "/home/jasonbk/Projects/intellm/llamacpp-intel-arc/build-aicss/llama-pr-only/build/bin",
+        "type": "path"
+      },
+      "original": {
+        "path": "/home/jasonbk/Projects/intellm/llamacpp-intel-arc/build-aicss/llama-pr-only/build/bin",
+        "type": "path"
       }
     },
     "sycl-tla-src": {

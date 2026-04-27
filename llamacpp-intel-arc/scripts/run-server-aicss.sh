@@ -79,7 +79,14 @@ echo
 # Set LLAMA_AICSS_DISABLE_OPT=1 to keep the workaround on if you see issues.
 EXTRA_ENV=()
 if [ "${LLAMA_AICSS_DISABLE_OPT:-0}" = "1" ]; then
-    EXTRA_ENV=(-e GGML_SYCL_DISABLE_OPT=1)
+    EXTRA_ENV+=(-e GGML_SYCL_DISABLE_OPT=1)
+fi
+# Forward KV-cache rotation overrides (see src/llama-kv-cache.cpp).
+if [ -n "${LLAMA_ATTN_ROT_DISABLE:-}" ]; then
+    EXTRA_ENV+=(-e "LLAMA_ATTN_ROT_DISABLE=$LLAMA_ATTN_ROT_DISABLE")
+fi
+if [ -n "${LLAMA_ATTN_ROT_ISO:-}" ]; then
+    EXTRA_ENV+=(-e "LLAMA_ATTN_ROT_ISO=$LLAMA_ATTN_ROT_ISO")
 fi
 
 exec podman run --rm \

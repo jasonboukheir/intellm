@@ -60,7 +60,8 @@ podman run --rm \
             -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
             -DGGML_SYCL=ON -DGGML_SYCL_TARGET=INTEL \
             -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_CURL=OFF >/dev/null && \
-        cmake --build build --target llama-server -j$(nproc)'
+        cmake --build build --target llama-server -j$(nproc) && \
+        cp -L /opt/intel/oneapi/dnnl/*/lib/libdnnl.so.3* build/bin/'
 
 echo
 echo "Done. Binary at $BUILD_DIR/build/bin/llama-server"

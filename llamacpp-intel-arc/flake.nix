@@ -4,15 +4,44 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    nix-intel-xpu.url = "path:../nix-intel-xpu";
+    nix-intel-xpu.url = "path:/home/jasonbk/Projects/intellm/nix-intel-xpu";
+
+    # The pre-built llama-server binary directory. We package the
+    # already-built artifacts because oneAPI/icpx isn't nix-packaged
+    # (see pkgs/server/default.nix and project root CLAUDE.md). A
+    # `flake = false` path input pins the build output by content
+    # hash on each evaluation, and exposes `lastModifiedDate` so the
+    # package version updates per build.
+    server-bin-aicss = {
+      url = "path:/home/jasonbk/Projects/intellm/llamacpp-intel-arc/build-aicss/llama-pr-only/build/bin";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, nix-intel-xpu }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
+  outputs = { self, nixpkgs, flake-utils, nix-intel-xpu, server-bin-aicss }:
+    {
+      # Overlay exposing `pkgs.llamacpp-intel-arc-server` — the patched
+      # server packaged from the pre-built binary directory. The build
+      # itself runs outside Nix via `scripts/build-aicss.sh` (which uses
+      # podman + the intel/vllm container); this overlay just stamps a
+      # per-build version onto the result and copies it into the store.
+      overlays.default = final: prev: {
+        llamacpp-intel-arc-server = final.callPackage ./pkgs/server {
+          src = server-bin-aicss;
+          # narHash changes whenever the binary directory's contents
+          # change, so this stamp ticks per build without manual bumping.
+          # Strip the "sha256-" prefix and take 8 chars for a short,
+          # human-readable suffix.
+          buildStamp = builtins.substring 7 8 server-bin-aicss.narHash;
+        };
+      };
+    }
+    // flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
       let
         pkgs = import nixpkgs {
           inherit system;
           config.allowUnfree = true;
+          overlays = [ self.overlays.default ];
         };
 
         # ggml-org official Intel/SYCL build of llama.cpp's server.
@@ -88,6 +117,11 @@
             echo ""
             echo "Image: $LLAMA_IMAGE"
           '';
+        };
+
+        packages = {
+          server = pkgs.llamacpp-intel-arc-server;
+          default = pkgs.llamacpp-intel-arc-server;
         };
 
         apps = {
