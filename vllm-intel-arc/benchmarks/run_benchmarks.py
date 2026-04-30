@@ -116,9 +116,9 @@ def make_prompt(target_tokens):
 
 
 async def main_async(args):
-    prompt_lens = [128, 512, 1024, 2048]
-    output_lens = [128, 256]
-    concurrencies = [1, 4, 8, 16]
+    prompt_lens = args.prompt_lens
+    output_lens = args.output_lens
+    concurrencies = args.concurrencies
 
     results = []
 
@@ -158,6 +158,24 @@ def main():
     parser.add_argument("--base-url", default="http://localhost:8000")
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument(
+        "--concurrencies",
+        type=lambda s: [int(x) for x in s.split(",")],
+        default=[1, 4, 8, 16],
+        help="Comma-separated list of concurrency levels (e.g. 1,8,16,32)",
+    )
+    parser.add_argument(
+        "--prompt-lens",
+        type=lambda s: [int(x) for x in s.split(",")],
+        default=[128, 512, 1024, 2048],
+        help="Comma-separated prompt token targets",
+    )
+    parser.add_argument(
+        "--output-lens",
+        type=lambda s: [int(x) for x in s.split(",")],
+        default=[128, 256],
+        help="Comma-separated output token targets",
+    )
     args = parser.parse_args()
 
     asyncio.run(main_async(args))
