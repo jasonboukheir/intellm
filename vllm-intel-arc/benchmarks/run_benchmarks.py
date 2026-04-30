@@ -115,6 +115,27 @@ def make_prompt(target_tokens):
     return (word * repetitions).strip()
 
 
+async def warmup(url: str, model: str) -> float:
+    """Send a throwaway request to JIT-compile decode kernels.
+
+    With --enforce-eager, vLLM's first decode pass on XPU autotunes the
+    triton kernels for that batch shape. That can cost 15-20 s of TTFT
+    and fully contaminates whatever row of the matrix runs first. A
+    single warmup request burns the cost in a known-throwaway slot so
+    the matrix that follows reflects steady-state throughput.
+
+    The warmup uses a tiny prompt + 32 decode tokens — enough to
+    exercise both prefill and decode kernels.
+    """
+    print("Warming up server (first decode JITs kernels)...")
+    t0 = time.time()
+    await run_concurrent(url, model, make_prompt(64), max_tokens=32, concurrency=1)
+    elapsed = time.time() - t0
+    print(f"  warmup done in {elapsed:.1f}s")
+    print()
+    return elapsed
+
+
 async def main_async(args):
     prompt_lens = args.prompt_lens
     output_lens = args.output_lens
@@ -127,6 +148,9 @@ async def main_async(args):
     print(f"Output lengths: {output_lens}")
     print(f"Concurrency levels: {concurrencies}")
     print()
+
+    if not args.skip_warmup:
+        await warmup(args.base_url, args.model)
 
     for prompt_len in prompt_lens:
         prompt = make_prompt(prompt_len)
@@ -175,6 +199,11 @@ def main():
         type=lambda s: [int(x) for x in s.split(",")],
         default=[128, 256],
         help="Comma-separated output token targets",
+    )
+    parser.add_argument(
+        "--skip-warmup",
+        action="store_true",
+        help="Skip the throwaway warmup request before the matrix.",
     )
     args = parser.parse_args()
 
