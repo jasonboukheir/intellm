@@ -1,0 +1,169 @@
+{
+  "summary": {
+    "p_tag": "fp16",
+    "q_tag": "turboquant_k8v4",
+    "p_kv": [
+      "f16",
+      "f16"
+    ],
+    "q_kv": [
+      "turboquant_k8v4",
+      "turboquant_k8v4"
+    ],
+    "n_prompts": 16,
+    "agreement_total": 0.263671875,
+    "agreement_min_per_prompt": 0.015625,
+    "n_prompts_full_agreement": 1,
+    "kl_mean_of_means": 0.007523624017675469,
+    "kl_max_overall": 0.12856738745292162,
+    "kl_p50_of_p50s": 0.003953484470209261,
+    "ce_qpicksp_mean": 0.48701999384903344,
+    "ce_baseline_mean": 0.445160036340274
+  },
+  "per_prompt": [
+    {
+      "prompt_idx": 0,
+      "n_compared": 64,
+      "n_token_agreement": 1,
+      "kl_mean": 0.0,
+      "kl_max": 0.0,
+      "kl_p50": 0.0,
+      "ce_qpicksp_mean": 0.957255482673645
+    },
+    {
+      "prompt_idx": 1,
+      "n_compared": 64,
+      "n_token_agreement": 7,
+      "kl_mean": 0.0028995182871210984,
+      "kl_max": 0.009341553009639764,
+      "kl_p50": 0.0009614521767386339,
+      "ce_qpicksp_mean": 0.39442175230942667
+    },
+    {
+      "prompt_idx": 2,
+      "n_compared": 64,
+      "n_token_agreement": 23,
+      "kl_mean": 0.013557293822345157,
+      "kl_max": 0.0509132278542905,
+      "kl_p50": 0.006172865668074248,
+      "ce_qpicksp_mean": 0.8230525131372776
+    },
+    {
+      "prompt_idx": 3,
+      "n_compared": 64,
+      "n_token_agreement": 19,
+      "kl_mean": 0.0041704873810335654,
+      "kl_max": 0.02795078870136916,
+      "kl_p50": 0.00011880381708220912,
+      "ce_qpicksp_mean": 0.21186412218422015
+    },
+    {
+      "prompt_idx": 4,
+      "n_compared": 64,
+      "n_token_agreement": 12,
+      "kl_mean": 0.013550151289738481,
+      "kl_max": 0.036845011913957997,
+      "kl_p50": 0.013355378076735728,
+      "ce_qpicksp_mean": 0.7228941395587754
+    },
+    {
+      "prompt_idx": 5,
+      "n_compared": 64,
+      "n_token_agreement": 12,
+      "kl_mean": 0.00816343984100105,
+      "kl_max": 0.023552441239871096,
+      "kl_p50": 0.005787182219623025,
+      "ce_qpicksp_mean": 0.4691385050925116
+    },
+    {
+      "prompt_idx": 6,
+      "n_compared": 64,
+      "n_token_agreement": 6,
+      "kl_mean": 0.005776674355741847,
+      "kl_max": 0.02031044332437147,
+      "kl_p50": 0.0041264316152262,
+      "ce_qpicksp_mean": 0.4424728449860898
+    },
+    {
+      "prompt_idx": 7,
+      "n_compared": 64,
+      "n_token_agreement": 35,
+      "kl_mean": 0.010056712433879062,
+      "kl_max": 0.07006467117111356,
+      "kl_p50": 0.005695454534660586,
+      "ce_qpicksp_mean": 0.3672725438096677
+    },
+    {
+      "prompt_idx": 8,
+      "n_compared": 64,
+      "n_token_agreement": 11,
+      "kl_mean": 0.008416365554552859,
+      "kl_max": 0.02607311484075664,
+      "kl_p50": 0.005455403730260298,
+      "ce_qpicksp_mean": 0.5796477430584756
+    },
+    {
+      "prompt_idx": 9,
+      "n_compared": 64,
+      "n_token_agreement": 26,
+      "kl_mean": 0.012522536376257602,
+      "kl_max": 0.062264344676290766,
+      "kl_p50": 0.00649415814791977,
+      "ce_qpicksp_mean": 0.4775137163873856
+    },
+    {
+      "prompt_idx": 10,
+      "n_compared": 64,
+      "n_token_agreement": 13,
+      "kl_mean": 0.018058431821883804,
+      "kl_max": 0.06992840749981195,
+      "kl_p50": 0.014139810883713515,
+      "ce_qpicksp_mean": 0.8456418184706798
+    },
+    {
+      "prompt_idx": 11,
+      "n_compared": 64,
+      "n_token_agreement": 1,
+      "kl_mean": 0.0,
+      "kl_max": 0.0,
+      "kl_p50": 0.0,
+      "ce_qpicksp_mean": 0.139330193400383
+    },
+    {
+      "prompt_idx": 12,
+      "n_compared": 64,
+      "n_token_agreement": 14,
+      "kl_mean": 0.006697223846838833,
+      "kl_max": 0.023337160780170365,
+      "kl_p50": 0.003780537325192321,
+      "ce_qpicksp_mean": 0.5477830244760428
+    },
+    {
+      "prompt_idx": 13,
+      "n_compared": 64,
+      "n_token_agreement": 64,
+      "kl_mean": 0.0023523953087887964,
+      "kl_max": 0.021437458487481992,
+      "kl_p50": 6.082533961146578e-05,
+      "ce_qpicksp_mean": 0.17824209681011105
+    },
+    {
+      "prompt_idx": 14,
+      "n_compared": 64,
+      "n_token_agreement": 4,
+      "kl_mean": 0.0037922174246920646,
+      "kl_max": 0.013263384219548013,
+      "kl_p50": 0.0009527427396101231,
+      "ce_qpicksp_mean": 0.20356171391631506
+    },
+    {
+      "prompt_idx": 15,
+      "n_compared": 64,
+      "n_token_agreement": 22,
+      "kl_mean": 0.010364536538933291,
+      "kl_max": 0.12856738745292162,
+      "kl_p50": 0.002430086802783736,
+      "ce_qpicksp_mean": 0.43222769131352834
+    }
+  ]
+}

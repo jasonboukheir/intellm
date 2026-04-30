@@ -1,0 +1,34 @@
+{
+  "summary": {
+    "p_tag": "fp16",
+    "q_tag": "turboquant_k3v4_nc",
+    "p_kv": [
+      "f16",
+      "f16"
+    ],
+    "q_kv": [
+      "turboquant_k3v4_nc",
+      "turboquant_k3v4_nc"
+    ],
+    "n_prompts": 1,
+    "agreement_total": 0.0625,
+    "agreement_min_per_prompt": 0.0625,
+    "n_prompts_full_agreement": 0,
+    "kl_mean_of_means": 0.02019709980801413,
+    "kl_max_overall": 0.051590377710929954,
+    "kl_p50_of_p50s": 0.014599010760563283,
+    "ce_qpicksp_mean": 0.46081240102648735,
+    "ce_baseline_mean": 0.39977895101343763
+  },
+  "per_prompt": [
+    {
+      "prompt_idx": 0,
+      "n_compared": 64,
+      "n_token_agreement": 4,
+      "kl_mean": 0.02019709980801413,
+      "kl_max": 0.051590377710929954,
+      "kl_p50": 0.014599010760563283,
+      "ce_qpicksp_mean": 0.46081240102648735
+    }
+  ]
+}
