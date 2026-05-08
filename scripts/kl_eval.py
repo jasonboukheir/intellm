@@ -18,13 +18,16 @@ import argparse
 import gc
 import hashlib
 import json
+import subprocess
+import sys
 import time
 from pathlib import Path
 
 import numpy as np
 import torch
+import transformers
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 
 def _device() -> str:
@@ -43,8 +46,29 @@ def _empty_cache() -> None:
 
 
 def cache_key(bf16_model: str, dataset: str, seqlen: int, num_samples: int, seed: int) -> str:
-    raw = f"{bf16_model}|{dataset}|{seqlen}|{num_samples}|{seed}"
+    # Bumped 'v2' tag invalidates pre-arch-aware caches (pre-2026-05-08): those
+    # were generated with AutoModelForCausalLM on a VLM checkpoint, which silently
+    # picked Qwen3_5ForCausalLM (text-only) and produced random-init logits.
+    raw = f"v2|{bf16_model}|{dataset}|{seqlen}|{num_samples}|{seed}"
     return hashlib.sha1(raw.encode()).hexdigest()[:12]
+
+
+def _resolve_model_class(model_path: str):
+    """Pick the right model class by reading the saved architectures field.
+
+    AutoModelForCausalLM dispatches by model_type, which for VLMs like Qwen3_5
+    resolves to the text-only class (Qwen3_5ForCausalLM) — but the saved
+    weights live under `model.language_model.X.*`, so the LM-only class can't
+    match them. We honor the architectures list instead, falling back to
+    AutoModelForCausalLM only when the explicit class isn't importable.
+    """
+    config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+    arch_list = getattr(config, "architectures", None) or []
+    for arch_name in arch_list:
+        cls = getattr(transformers, arch_name, None)
+        if cls is not None:
+            return arch_name, cls
+    return "AutoModelForCausalLM", AutoModelForCausalLM
 
 
 def load_eval_sequences(tokenizer, dataset: str, num_samples: int, seqlen: int, seed: int) -> list[torch.Tensor]:
@@ -76,7 +100,9 @@ def pass1_bf16(args, eval_seqs: list[torch.Tensor], cache_dir: Path) -> None:
 
     print(f"[pass1] loading BF16 reference: {args.bf16_model}")
     print(f"[pass1] device_map=auto  gpu={args.gpu_mem}  cpu={args.cpu_mem}")
-    model = AutoModelForCausalLM.from_pretrained(
+    arch_name, model_cls = _resolve_model_class(args.bf16_model)
+    print(f"[pass1] using class: {arch_name}")
+    model = model_cls.from_pretrained(
         args.bf16_model,
         torch_dtype=torch.bfloat16,
         device_map="auto",
@@ -106,12 +132,27 @@ def pass1_bf16(args, eval_seqs: list[torch.Tensor], cache_dir: Path) -> None:
 def pass2_quant(args, eval_seqs: list[torch.Tensor], cache_dir: Path) -> dict:
     device = args.quant_device or _device()
     print(f"[pass2] loading quant model: {args.quant_model}  device={device}")
-    model = AutoModelForCausalLM.from_pretrained(
+    # device_map="auto" with explicit max_memory lets accelerate spill peak
+    # transient buffers to CPU during auto-round's QuantLinear conversion,
+    # even though the converted model itself fits on XPU. Plain device_map=xpu
+    # OOMs during _initialize_missing_keys on the GDN A_log path because
+    # peak load memory > steady-state.
+    if device == "cpu":
+        device_map = "cpu"
+    else:
+        device_map = "auto"
+    arch_name, model_cls = _resolve_model_class(args.quant_model)
+    print(f"[pass2] using class: {arch_name}")
+    model = model_cls.from_pretrained(
         args.quant_model,
-        device_map=device,
+        device_map=device_map,
+        max_memory=({0: args.quant_gpu_mem, "cpu": args.cpu_mem} if device != "cpu" else None),
+        torch_dtype="auto",
+        low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
     model.eval()
+    device = next(model.parameters()).device
 
     total_kl = 0.0
     total_tok = 0
@@ -149,11 +190,14 @@ def main() -> None:
     p.add_argument("--seqlen", type=int, default=512)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--cache-dir", default=None, help="default: ~/.cache/intellm/kl-eval/<key>")
-    p.add_argument("--gpu-mem", default="26GiB", help="accelerate max_memory for the device-0 slot")
+    p.add_argument("--gpu-mem", default="26GiB", help="accelerate max_memory for the BF16 reference (device-0 slot)")
+    p.add_argument("--quant-gpu-mem", default="22GiB", help="accelerate max_memory for the quant model (device-0 slot)")
     p.add_argument("--cpu-mem", default="120GiB", help="accelerate max_memory for the cpu slot")
     p.add_argument("--quant-device", default=None, help="override device for the quant model (xpu|cuda|cpu)")
     p.add_argument("--out", default=None, help="optional JSON output path")
     p.add_argument("--skip-pass1", action="store_true", help="assume cache is populated; only run pass 2")
+    p.add_argument("--no-subprocess", action="store_true", help="run both passes in this process (default: pass1 in subprocess for clean VRAM release)")
+    p.add_argument("--_phase", choices=["pass1", "pass2"], default=None, help=argparse.SUPPRESS)
     args = p.parse_args()
 
     tokenizer = AutoTokenizer.from_pretrained(args.bf16_model, trust_remote_code=True)
@@ -165,19 +209,57 @@ def main() -> None:
         if args.cache_dir
         else Path.home() / ".cache" / "intellm" / "kl-eval" / key
     )
-    print(f"[kl-eval] cache_dir = {cache_dir}")
+    print(f"[kl-eval] cache_dir = {cache_dir} phase={args._phase or 'all'}")
+
+    # Internal recursion: run pass 1 in a child process so XPU buffers (held
+    # by accelerate hooks even after del+gc.collect+empty_cache) are released
+    # by OS-level process exit before we load the quant model.
+    if args._phase == "pass1":
+        pass1_bf16(args, eval_seqs, cache_dir)
+        return
+    if args._phase == "pass2":
+        metrics = pass2_quant(args, eval_seqs, cache_dir)
+        _emit(args, metrics)
+        return
 
     if not args.skip_pass1:
-        pass1_bf16(args, eval_seqs, cache_dir)
+        if args.no_subprocess:
+            pass1_bf16(args, eval_seqs, cache_dir)
+        else:
+            print("[kl-eval] forking pass 1 as subprocess for clean VRAM release")
+            child_argv = [sys.executable, str(Path(__file__).resolve()), *_unparsed_args(), "--_phase", "pass1"]
+            rc = subprocess.run(child_argv).returncode
+            if rc != 0:
+                print(f"[kl-eval] pass 1 subprocess exited {rc}", file=sys.stderr)
+                sys.exit(rc)
     metrics = pass2_quant(args, eval_seqs, cache_dir)
+    _emit(args, metrics)
 
+
+def _emit(args, metrics: dict) -> None:
     print("\n=== KL eval results ===")
     for k, v in metrics.items():
         print(f"  {k}: {v}")
-
     if args.out:
         Path(args.out).expanduser().write_text(json.dumps(metrics, indent=2))
         print(f"\nwrote {args.out}")
+
+
+def _unparsed_args() -> list[str]:
+    """Forward original argv to a child invocation, stripping --_phase."""
+    out: list[str] = []
+    skip_next = False
+    for arg in sys.argv[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--_phase":
+            skip_next = True
+            continue
+        if arg.startswith("--_phase="):
+            continue
+        out.append(arg)
+    return out
 
 
 if __name__ == "__main__":
