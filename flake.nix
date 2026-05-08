@@ -42,7 +42,7 @@
         # CLIs that auto-round's flake exposes.
         # Source of truth: auto-round/flake.nix.
         autoroundCommands = [
-          "autoround" "auto-round-qwen-3-6-35b-a3b" "quantize" "commands"
+          "autoround" "auto-round-qwen-3-6-35b-a3b" "commands"
         ];
         autoroundForwards = map (n: mkForward { name = n; submodule = "auto-round"; }) autoroundCommands;
 
@@ -96,6 +96,28 @@
             echo "If submodule pins changed above, commit the bumps:"
             echo "  git add <submodule>"
             echo "  git commit -m 'bump <submodule> to latest <branch>'"
+          '';
+        };
+
+        # B70-tuned AutoRound wrapper. Lives in intellm root (dev-ergonomics);
+        # runs scripts/quantize.sh inside auto-round's nix dev shell so
+        # `autoround` (the podman container wrapper) is on PATH.
+        quantize = pkgs.writeShellApplication {
+          name = "quantize";
+          runtimeInputs = [ pkgs.nix pkgs.git ];
+          text = ''
+            root="''${INTELLM_ROOT:-$(git rev-parse --show-superproject-working-tree 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+            script="$root/scripts/quantize.sh"
+            target="$root/auto-round"
+            if [ ! -f "$script" ]; then
+              echo "intellm: $script missing" >&2
+              exit 1
+            fi
+            if [ ! -f "$target/flake.nix" ]; then
+              echo "intellm: auto-round flake missing at $target — run intellm-init" >&2
+              exit 1
+            fi
+            exec nix develop "$target" --command bash "$script" "$@"
           '';
         };
 
@@ -159,6 +181,13 @@
               intellm-init              initialize submodules (first-time setup)
               intellm-update            pull latest tracked branch for each submodule
               intellm-help              this message
+              quantize <model> <type>   B70-tuned AutoRound wrapper (runs scripts/quantize.sh
+                                        inside auto-round's nix shell). types: int4 int8 mxfp4
+                                        nvfp4 gguf:q4_k_m ...   recipes via env var
+                                        AUTOROUND_QUANTIZE_RECIPE: default (200i, ~4.4h),
+                                        light (50i, ~1.7h), overnight (400i + patience 100,
+                                        ~8-14h, recommended for quality), best (1000i, days).
+                                        Run 'quantize help' for full options.
               kl-eval [args]            KL/top-1 eval of a quantized model vs its BF16 reference
                                         (runs scripts/kl_eval.py inside the auto-round container).
                                         --quant-model expects a path under /output (the host
@@ -181,7 +210,6 @@
             auto-round CLIs (forward into ./auto-round nix shell):
               autoround                 the auto-round CLI
               auto-round-qwen-3-6-35b-a3b   pre-canned Qwen 3.6 35B-A3B quantize
-              quantize                  generic quantize wrapper
               commands                  list available auto-round subcommands
 
             Each forwarded CLI runs `nix develop ./<submodule> -c <cli>` —
@@ -191,7 +219,7 @@
           '';
         };
 
-        metaCommands = [ intellmStatus intellmInit intellmUpdate intellmHelp klEval ];
+        metaCommands = [ intellmStatus intellmInit intellmUpdate intellmHelp quantize klEval ];
         allWrappers = metaCommands ++ xpuForwards ++ autoroundForwards;
 
       in {
