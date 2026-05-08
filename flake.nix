@@ -99,6 +99,55 @@
           '';
         };
 
+        # KL-divergence eval: AutoRound-quantized model vs BF16 reference.
+        # Lives in intellm root (dev-ergonomics) and runs scripts/kl_eval.py
+        # inside the auto-round XPU container (built once by `autoround build`).
+        # Avoids touching the auto-round submodule.
+        #
+        # Path conventions inside the container:
+        #   /output            <- intellm/auto-round/output (where quantize writes)
+        #   /intellm-scripts   <- intellm/scripts (this script)
+        #   /workspace         <- intellm/auto-round (live source overlay)
+        #   /root/.cache/intellm/kl-eval  <- host ~/.cache/intellm/kl-eval (logp cache)
+        klEval = pkgs.writeShellApplication {
+          name = "kl-eval";
+          runtimeInputs = [ pkgs.podman pkgs.git ];
+          text = ''
+            root="''${INTELLM_ROOT:-$(git rev-parse --show-superproject-working-tree 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+            script="$root/scripts/kl_eval.py"
+            image="''${AUTOROUND_IMAGE_TAG:-localhost/auto-round-xpu:latest}"
+            if [ ! -f "$script" ]; then
+              echo "kl-eval: $script missing" >&2
+              exit 1
+            fi
+            if ! podman image exists "$image"; then
+              echo "kl-eval: image '$image' not found." >&2
+              echo "  build it once with:  nix develop ./auto-round -c autoround build" >&2
+              exit 1
+            fi
+            hf_cache="''${HF_HOME:-$HOME/.cache/huggingface}"
+            output_base="''${AUTOROUND_OUTPUT_DIR:-$root/auto-round/output}"
+            kl_cache="$HOME/.cache/intellm"
+            mkdir -p "$hf_cache" "$output_base" "$kl_cache/kl-eval"
+            tty_args=()
+            if [ -t 0 ] && [ -t 1 ]; then
+              tty_args=(-it)
+            fi
+            exec podman run "''${tty_args[@]}" --rm \
+              --device /dev/dri \
+              --group-add keep-groups \
+              --shm-size=16g \
+              -v "$hf_cache:/root/.cache/huggingface:z" \
+              -v "$output_base:/output:z" \
+              -v "$root/scripts:/intellm-scripts:z,ro" \
+              -v "$kl_cache:/root/.cache/intellm:z" \
+              -v "$root/auto-round:/workspace:z" \
+              -e PYTHONPATH=/workspace \
+              "$image" \
+              python /intellm-scripts/kl_eval.py "$@"
+          '';
+        };
+
         intellmHelp = pkgs.writeShellApplication {
           name = "intellm-help";
           text = ''
@@ -110,6 +159,10 @@
               intellm-init              initialize submodules (first-time setup)
               intellm-update            pull latest tracked branch for each submodule
               intellm-help              this message
+              kl-eval [args]            KL/top-1 eval of a quantized model vs its BF16 reference
+                                        (runs scripts/kl_eval.py inside the auto-round container).
+                                        --quant-model expects a path under /output (the host
+                                        auto-round/output dir is bind-mounted there).
 
             vllm-xpu-kernels CLIs (forward into ./vllm-xpu-kernels nix shell):
               vllm-xpu-build            full kernel build (Debug; CMAKE_BUILD_TYPE=Release for perf)
@@ -138,7 +191,7 @@
           '';
         };
 
-        metaCommands = [ intellmStatus intellmInit intellmUpdate intellmHelp ];
+        metaCommands = [ intellmStatus intellmInit intellmUpdate intellmHelp klEval ];
         allWrappers = metaCommands ++ xpuForwards ++ autoroundForwards;
 
       in {
