@@ -2,4 +2,12 @@ result
 result-*
 .direnv
 .claude/settings.local.json
-*.lock
+.claude/scheduled_tasks.lock
+
+# package-manager locks for non-nix tools (flake.lock IS tracked)
+package-lock.json
+yarn.lock
+Cargo.lock
+
+# jujutsu workspace state (only relevant when colocated with .git)
+.jj/

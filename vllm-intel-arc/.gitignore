@@ -1,8 +1,0 @@
-result
-result-*
-.direnv
-__pycache__/
-*.egg-info/
-results/
-*.json
-!configs/**/*.json

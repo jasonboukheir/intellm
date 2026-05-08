@@ -1,0 +1,12 @@
+[submodule "vllm"]
+	path = vllm
+	url = git@github.com:jasonboukheir/vllm.git
+	branch = tq-hybrid-allow-rebased
+[submodule "vllm-xpu-kernels"]
+	path = vllm-xpu-kernels
+	url = git@github.com:jasonboukheir/vllm-xpu-kernels.git
+	branch = swiglu-epilogue
+[submodule "auto-round"]
+	path = auto-round
+	url = git@github.com:jasonboukheir/auto-round.git
+	branch = main

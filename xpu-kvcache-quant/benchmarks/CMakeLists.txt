@@ -1,5 +1,0 @@
-add_executable(bench_rotation bench_rotation.cpp)
-target_link_libraries(bench_rotation PRIVATE kvcache_quant)
-
-add_executable(bench_quantize bench_quantize.cpp)
-target_link_libraries(bench_quantize PRIVATE kvcache_quant)

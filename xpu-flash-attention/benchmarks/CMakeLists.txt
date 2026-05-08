@@ -1,2 +1,0 @@
-add_executable(bench_flash_attn bench_flash_attn.cpp)
-target_link_libraries(bench_flash_attn PRIVATE xpu_flash_attention)
