@@ -1,6 +1,7 @@
 result
 result-*
 .direnv
+.dev-bin/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
