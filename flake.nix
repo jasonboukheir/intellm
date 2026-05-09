@@ -93,19 +93,6 @@
               intellm-update            pull latest tracked branch for each submodule
               intellm-help              this message
 
-            Quantization (nix-native, no container — both from upstream vllm-xpu-nix):
-              quantize <model> <type>            B70-tuned AutoRound wrapper.
-                                                 types: int4 int8 mxfp4 nvfp4 gguf:q4_k_m ...
-                                                 Recipes via AUTOROUND_QUANTIZE_RECIPE env:
-                                                   default   (200i, ~4.4h)
-                                                   light     (50i, ~1.7h)
-                                                   overnight (400i + patience 100, ~8-14h)
-                                                   best      (1000i, days).
-                                                 Run 'quantize help' for full options.
-              kl-eval [args]                     KL/top-1 eval of a quantized model vs its
-                                                 BF16 reference. --quant-model points at the
-                                                 directory `quantize` writes to.
-
             vllm + vllm-xpu-kernels (iterate against the local submodules):
               nix develop .#kernels-dev          toolchain + closure for vllm-xpu-kernels
                                                  cd vllm-xpu-kernels && pip install -e . --no-build-isolation
@@ -139,16 +126,13 @@
             torch-xpu triton-xpu
             flash-linear-attention
             vllm-xpu-kernels vllm-xpu-kernels-unstable
-            vllm-xpu vllm-xpu-unstable
-            quantize kl-eval;
+            vllm-xpu vllm-xpu-unstable;
         };
 
       in {
         devShells.default = pkgs.mkShell {
           name = "intellm-dev";
           packages = metaCommands ++ [
-            upstream.quantize
-            upstream.kl-eval
             pkgs.git
             pkgs.gnumake
             pkgs.jujutsu
@@ -177,8 +161,5 @@
           type = "app";
           program = "${intellmHelp}/bin/intellm-help";
         };
-
-        apps.quantize = vllm-xpu-nix.apps.${system}.quantize;
-        apps.kl-eval  = vllm-xpu-nix.apps.${system}.kl-eval;
       });
 }

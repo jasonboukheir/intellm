@@ -4,7 +4,7 @@ result-*
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
-# auto-round / quantize / kl-eval artifacts (large model files, regenerable)
+# model artifacts (large, regenerable)
 output/
 
 # package-manager locks for non-nix tools (flake.lock IS tracked)
