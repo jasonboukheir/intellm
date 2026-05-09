@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Recipe presets for W4A16 quantization of Qwen3.6-35B-A3B on Battlemage B70 30 GB.
 # Tuned from per-knob smokes on Qwen3-0.6B 2026-05-02 (see `help`).
+# Runs against the auto-round-xpu nix env from upstream vllm-xpu-nix — the
+# Nix wrapper in intellm/flake.nix puts `auto-round*` on PATH directly.
 set -euo pipefail
 
 MODEL="${AUTOROUND_QWEN_MODEL:-Qwen/Qwen3.6-35B-A3B}"
 RECIPE_BIN="${AUTOROUND_QWEN_RECIPE_BIN:-auto-round}"
 SEQLEN="${AUTOROUND_QWEN_SEQLEN:-2048}"
+OUTPUT_DIR="${AUTOROUND_OUTPUT_DIR:-$PWD/output/auto-round}"
 
 usage() {
     cat <<'EOF'
@@ -36,7 +39,7 @@ Environment overrides:
   AUTOROUND_QWEN_RECIPE_BIN    auto-round | auto-round-light | auto-round-best
                                (default: auto-round; switch to -light for ~1.5h smoke)
   AUTOROUND_QWEN_SEQLEN        calibration seqlen (default: 2048)
-  AUTOROUND_OUTPUT_DIR         output dir base (default: $PWD/output)
+  AUTOROUND_OUTPUT_DIR         output dir base (default: $PWD/output/auto-round)
 
 Per-knob measurements (Qwen3-0.6B, B70 idle, auto-round-light 50 iters):
 
@@ -80,14 +83,14 @@ run_preset() {
         *) echo "error: unknown preset '$preset' (expected: safe|aggressive)" >&2; exit 1 ;;
     esac
 
+    mkdir -p "$OUTPUT_DIR"
+
     echo ">>> auto-round-qwen-3-6-35b-a3b $preset"
     echo ">>> model=$MODEL recipe=$RECIPE_BIN bs=$bs ga=$ga seqlen=$SEQLEN low_gpu_mem=OFF"
+    echo ">>> output_dir=$OUTPUT_DIR"
     echo ""
 
-    # Use `autoround run --` to bypass the wrapper's hard-coded --low_gpu_mem_usage,
-    # --batch_size, --gradient_accumulate_steps, and --seqlen defaults. We pass the
-    # full auto-round CLI ourselves.
-    exec autoround run -- "$RECIPE_BIN" \
+    exec "$RECIPE_BIN" \
         --model "$MODEL" \
         --scheme W4A16 \
         --format auto_round \
@@ -95,7 +98,7 @@ run_preset() {
         --batch_size "$bs" \
         --gradient_accumulate_steps "$ga" \
         --seqlen "$SEQLEN" \
-        --output_dir /output \
+        --output_dir "$OUTPUT_DIR" \
         "$@"
 }
 

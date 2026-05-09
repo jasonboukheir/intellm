@@ -6,7 +6,3 @@
 	path = vllm-xpu-kernels
 	url = git@github.com:jasonboukheir/vllm-xpu-kernels.git
 	branch = main
-[submodule "auto-round"]
-	path = auto-round
-	url = git@github.com:jasonboukheir/auto-round.git
-	branch = main

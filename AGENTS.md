@@ -1,19 +1,23 @@
 # intellm — agent guide
 
-This is a meta-repo. Three forks live as submodules:
-`vllm`, `vllm-xpu-kernels`, `auto-round`.
+This is a meta-repo. Two forks live as submodules: `vllm`, `vllm-xpu-kernels`.
+
+The XPU substrate (torch+xpu, triton-xpu, oneAPI/MKL/SYCL, vllm-xpu-kernels,
+vllm, auto-round-xpu, quantize, kl-eval) is provided nix-natively by the
+upstream [`vllm-xpu-nix`](https://github.com/jasonboukheir/vllm-xpu-nix)
+flake — no containers, no `intel/vllm` image, no host-managed venvs.
 
 ## Discover capabilities via the CLI, not this file
 
 ```bash
 direnv allow                # one-time, pulls dev shell automatically
-intellm-help                # all CLIs across submodules
+intellm-help                # listing of meta CLIs and dev shells
 intellm-status              # branch / commit / dirty for each submodule
 ```
 
-All CLIs are defined in the meta-repo's `flake.nix`. The submodules
-themselves carry no nix or dev infra — they stay clean for upstream PRs.
-Run any CLI with `--help` for its own usage.
+The repo `flake.nix` wires the upstream `vllm-xpu-nix` flake onto the local
+submodule layout and adds repo-level meta CLIs. Run `--help` on any CLI for
+its own usage.
 
 ## First-time setup
 
@@ -41,16 +45,46 @@ branch from `main` + remaining branches.
 - **In a submodule** (candidate for upstream PR): real source changes,
   regression tests, build/CMake changes.
 - **In intellm root** (never upstream): progress journals, scratch probes,
-  the dev-ergonomics flake, CLI wrappers, and per-fork nix infra:
-  - `nix/auto-round/` — Containerfile + podman wrappers for the XPU
-    quantization toolkit (autoround, auto-round-qwen-3-6-35b-a3b).
-  - `flake.nix` — also defines the Docker-based vllm-xpu-kernels and vllm
-    CLIs (vllm-xpu-build, vllm-test, etc.).
-  - `scripts/` — `quantize.sh`, `kl_eval.py` (run inside the auto-round
-    container).
+  the meta CLIs (`intellm-status`, `intellm-init`, `intellm-update`,
+  `intellm-help`), and the Qwen3.6-35B-A3B preset script
+  (`nix/auto-round/auto-round-qwen-3-6-35b-a3b.sh`) with empirical bs/ga
+  measurement notes.
+- **In `vllm-xpu-nix`** (upstream): all derivations and dev shells —
+  `auto-round-xpu`, `quantize`, `kl-eval`, `vllm-xpu`, `vllm-xpu-kernels`,
+  the `kernels-dev` / `vllm-dev` / `attn-dev` shells.
+
+## Iterating against local submodule checkouts
+
+```bash
+# vllm-xpu-kernels: full toolchain + closure, then editable install
+nix develop .#kernels-dev
+cd vllm-xpu-kernels
+pip install -e . --no-build-isolation
+
+# vllm: full toolchain + closure, including a vllm-xpu-kernels build
+nix develop .#vllm-dev
+cd vllm
+pip install -e . --no-build-isolation --no-deps
+
+# fast in-tree iteration on attn_kernels_xe_2
+nix develop .#attn-dev
+make dev-attn KERNELS_SRC=$PWD/vllm-xpu-kernels
+```
+
+To build the `unstable` variants of the upstream packages from the local
+submodules (instead of upstream's pinned source):
+
+```bash
+nix build .#vllm-xpu-kernels-unstable \
+  --override-input vllm-xpu-nix/vllm-xpu-kernels-unstable-src path:./vllm-xpu-kernels
+nix build .#vllm-xpu-unstable \
+  --override-input vllm-xpu-nix/vllm-xpu-unstable-src path:./vllm
+```
 
 ## Domain-specific guides
 
 `vllm/AGENTS.md` is upstream contributor guidance — read it before touching
-the vllm submodule. The other two submodules carry no agent files; their
-upstream READMEs are the source of truth.
+the vllm submodule. `vllm-xpu-kernels`' upstream README is the source of
+truth for kernel work. The `vllm-xpu-nix` repo has its own `docs/`
+covering build, NixOS overlay use, hardware prerequisites, and the
+quantize/eval workflow.
