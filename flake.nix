@@ -1,5 +1,5 @@
 {
-  description = "intellm — meta-repo for vllm, vllm-xpu-kernels, auto-round forks. Wires the upstream vllm-xpu-nix flake (nix-native XPU substrate) onto local submodule checkouts and adds repo-level meta CLIs.";
+  description = "intellm — meta-repo for vllm, vllm-xpu-kernels forks. Wires the upstream vllm-xpu-nix flake (nix-native XPU substrate) onto local submodule checkouts and adds repo-level meta CLIs.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -23,25 +23,6 @@
         upstreamShells = vllm-xpu-nix.devShells.${system};
 
         submodules = [ "vllm" "vllm-xpu-kernels" ];
-
-        # auto-round-xpu env exposes `auto-round`, `auto-round-light`,
-        # `auto-round-best` as native entry points — no container.
-        autoRoundEnv = pkgs.python312Packages.python.withPackages (_: [ upstream.auto-round-xpu ]);
-
-        # Repo-specific Qwen3.6-35B-A3B preset (empirical bs/ga tuning notes
-        # in the script). Wraps the auto-round-xpu env directly.
-        qwenPresetScript = ./nix/auto-round/auto-round-qwen-3-6-35b-a3b.sh;
-        autoroundQwen35b = pkgs.writeShellApplication {
-          name = "auto-round-qwen-3-6-35b-a3b";
-          runtimeInputs = [ autoRoundEnv pkgs.git ];
-          text = ''
-            if [ -z "''${AUTOROUND_OUTPUT_DIR:-}" ]; then
-              root="''${INTELLM_ROOT:-$(git rev-parse --show-superproject-working-tree 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-              export AUTOROUND_OUTPUT_DIR="$root/output/auto-round"
-            fi
-            exec bash "${qwenPresetScript}" "$@"
-          '';
-        };
 
         intellmStatus = pkgs.writeShellApplication {
           name = "intellm-status";
@@ -87,7 +68,7 @@
             root="$(git rev-parse --show-toplevel)"
             cd "$root"
             git submodule update --remote --jobs 4
-            git status -s -- vllm vllm-xpu-kernels auto-round
+            git status -s -- vllm vllm-xpu-kernels
             echo ""
             echo "If submodule pins changed above, commit the bumps:"
             echo "  git add <submodule>"
@@ -99,12 +80,12 @@
           name = "intellm-help";
           text = ''
             cat <<'EOF'
-            intellm — meta-repo for vllm, vllm-xpu-kernels, auto-round.
+            intellm — meta-repo for vllm, vllm-xpu-kernels.
 
             All XPU substrate (torch+xpu, triton-xpu, oneAPI/MKL/SYCL, vllm-xpu-
-            kernels, vllm, auto-round-xpu) comes from the upstream vllm-xpu-nix
-            flake — no containers. This repo adds submodule wiring and per-repo
-            ergonomics on top.
+            kernels, vllm) comes from the upstream vllm-xpu-nix flake — no
+            containers. This repo adds submodule wiring and per-repo ergonomics
+            on top.
 
             Meta CLIs:
               intellm-status            show branch/commit/dirty for each submodule
@@ -112,7 +93,7 @@
               intellm-update            pull latest tracked branch for each submodule
               intellm-help              this message
 
-            Quantization (nix-native, no container):
+            Quantization (nix-native, no container — both from upstream vllm-xpu-nix):
               quantize <model> <type>            B70-tuned AutoRound wrapper.
                                                  types: int4 int8 mxfp4 nvfp4 gguf:q4_k_m ...
                                                  Recipes via AUTOROUND_QUANTIZE_RECIPE env:
@@ -124,12 +105,6 @@
               kl-eval [args]                     KL/top-1 eval of a quantized model vs its
                                                  BF16 reference. --quant-model points at the
                                                  directory `quantize` writes to.
-              auto-round-qwen-3-6-35b-a3b safe        bs=4 ga=2 + drop low_gpu_mem (~5h, ~29 GB est)
-              auto-round-qwen-3-6-35b-a3b aggressive  bs=8 ga=1 + drop low_gpu_mem (~4h, tight)
-              auto-round-qwen-3-6-35b-a3b help        full preset listing
-
-              auto-round / auto-round-light / auto-round-best are also on PATH
-              if you want to bypass the wrapper.
 
             vllm + vllm-xpu-kernels (iterate against the local submodules):
               nix develop .#kernels-dev          toolchain + closure for vllm-xpu-kernels
@@ -143,7 +118,7 @@
               nix build .#vllm-xpu-unstable      vllm pinned to jasonboukheir fork
               nix build .#vllm-xpu-kernels       upstream-pinned kernels
               nix build .#vllm-xpu-kernels-unstable
-              nix build .#torch-xpu / .#triton-xpu / .#auto-round-xpu
+              nix build .#torch-xpu / .#triton-xpu
 
             Build the unstable variants against your local submodule:
               nix build .#vllm-xpu-kernels-unstable \
@@ -154,7 +129,7 @@
           '';
         };
 
-        metaCommands = [ intellmStatus intellmInit intellmUpdate intellmHelp autoroundQwen35b ];
+        metaCommands = [ intellmStatus intellmInit intellmUpdate intellmHelp ];
 
         # Re-export upstream packages so users can `nix build .#vllm-xpu` etc.
         # without remembering the flake URL.
@@ -163,7 +138,6 @@
             intel-oneapi intel-pti oneccl-bmg
             torch-xpu triton-xpu
             flash-linear-attention
-            auto-round-xpu
             vllm-xpu-kernels vllm-xpu-kernels-unstable
             vllm-xpu vllm-xpu-unstable
             quantize kl-eval;
@@ -173,7 +147,6 @@
         devShells.default = pkgs.mkShell {
           name = "intellm-dev";
           packages = metaCommands ++ [
-            autoRoundEnv
             upstream.quantize
             upstream.kl-eval
             pkgs.git
@@ -188,7 +161,6 @@
           ];
           shellHook = ''
             export INTELLM_ROOT="$(git rev-parse --show-toplevel)"
-            export AUTOROUND_OUTPUT_DIR="''${AUTOROUND_OUTPUT_DIR:-$INTELLM_ROOT/output/auto-round}"
             echo "intellm dev shell. Run 'intellm-help' for the full CLI listing."
           '';
         };
@@ -208,6 +180,5 @@
 
         apps.quantize = vllm-xpu-nix.apps.${system}.quantize;
         apps.kl-eval  = vllm-xpu-nix.apps.${system}.kl-eval;
-        apps.autoround = vllm-xpu-nix.apps.${system}.autoround;
       });
 }
