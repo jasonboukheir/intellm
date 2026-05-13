@@ -76,6 +76,69 @@
           '';
         };
 
+        # Pinned ruff binaries — match each subproject's .pre-commit-config.yaml
+        # so `lint` produces the same diagnostics CI would. Nixpkgs' ruff drifts
+        # ahead of vLLM's pin (jasonbk memory note: 0.15.x vs 0.14.0), and
+        # `uv tool run` trips on uv's bundled glibc python under NixOS, so we
+        # vendor the official musl static binary per version.
+        mkRuff = { version, sha256 }: pkgs.stdenvNoCC.mkDerivation {
+          pname = "ruff";
+          inherit version;
+          src = pkgs.fetchurl {
+            url = "https://github.com/astral-sh/ruff/releases/download/${version}/ruff-x86_64-unknown-linux-musl.tar.gz";
+            inherit sha256;
+          };
+          sourceRoot = "ruff-x86_64-unknown-linux-musl";
+          dontConfigure = true;
+          dontBuild = true;
+          installPhase = ''
+            install -Dm755 ruff "$out/bin/ruff"
+          '';
+        };
+
+        ruffVllm    = mkRuff { version = "0.14.0"; sha256 = "sha256-7W0bhAeh0ijcMy+xkFfobgSmzTwr6s2zJK1v8qP5Bxs="; };
+        ruffKernels = mkRuff { version = "0.11.7"; sha256 = "sha256-DK8yqww5m/ugjRixkNwarsjqRzaIZKS/Oz8RPjbo/Wg="; };
+
+        intellmLint = pkgs.writeShellApplication {
+          name = "lint";
+          runtimeInputs = [ pkgs.git ];
+          text = ''
+            root="$(git rev-parse --show-toplevel)"
+            cd "$root"
+
+            run_in() {
+              local sub="$1" ruff="$2"
+              if [ ! -d "$sub" ]; then
+                echo "[$sub] not initialized — skipping"
+                return 0
+              fi
+              echo "=== $sub ==="
+              (
+                cd "$sub"
+                if [ -f .pre-commit-config.yaml ] && command -v pre-commit >/dev/null 2>&1; then
+                  echo "[$sub] pre-commit run --all-files"
+                  pre-commit run --all-files
+                else
+                  if [ ! -f .pre-commit-config.yaml ]; then
+                    echo "[$sub] no .pre-commit-config.yaml — running ruff only"
+                  else
+                    echo "[$sub] pre-commit not installed — falling back to ruff only"
+                  fi
+                  echo "[$sub] ruff check ."
+                  "$ruff" check .
+                  echo "[$sub] ruff format --check ."
+                  "$ruff" format --check .
+                fi
+              )
+            }
+
+            fail=0
+            run_in vllm              "${ruffVllm}/bin/ruff"    || fail=1
+            run_in vllm-xpu-kernels  "${ruffKernels}/bin/ruff" || fail=1
+            exit "$fail"
+          '';
+        };
+
         intellmHelp = pkgs.writeShellApplication {
           name = "intellm-help";
           text = ''
@@ -91,6 +154,7 @@
               intellm-status            show branch/commit/dirty for each submodule
               intellm-init              initialize submodules (first-time setup)
               intellm-update            pull latest tracked branch for each submodule
+              lint                      run pre-commit (or pinned ruff fallback) across both subprojects
               intellm-help              this message
 
             vllm + vllm-xpu-kernels (iterate against the local submodules):
@@ -116,7 +180,7 @@
           '';
         };
 
-        metaCommands = [ intellmStatus intellmInit intellmUpdate intellmHelp ];
+        metaCommands = [ intellmStatus intellmInit intellmUpdate intellmLint intellmHelp ];
 
         # Re-export upstream packages so users can `nix build .#vllm-xpu` etc.
         # without remembering the flake URL.
@@ -138,6 +202,7 @@
             pkgs.jujutsu
             pkgs.gh
             pkgs.direnv
+            pkgs.pre-commit
             pkgs.level-zero
             pkgs.intel-compute-runtime
             pkgs.clinfo
